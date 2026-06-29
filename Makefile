@@ -35,8 +35,11 @@ test-query:
 test-replay:
 	@cd services/replay-engine && pytest tests/ --cov=app
 
+test-web:
+	@cd apps/web && npm test 2>&1 | tail -20
+
 test: test-sdk test-ingest test-query test-replay
-	@echo "✓ all tests passed"
+	@echo "✓ all tests passed (web is manual via 'make build-web')"
 
 test-all: spec-lint test
 	@echo "✓ everything green"
