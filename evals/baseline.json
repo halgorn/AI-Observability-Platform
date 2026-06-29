@@ -1,0 +1,22 @@
+{
+  "factuality": {
+    "mean": 0.6125,
+    "min": 0.05
+  },
+  "relevance": {
+    "mean": 0.3,
+    "min": 0.01
+  },
+  "harmfulness": {
+    "mean": 0.89,
+    "min": 0.84
+  },
+  "coherence": {
+    "mean": 0.755,
+    "min": 0.75
+  },
+  "completeness": {
+    "mean": 0.515,
+    "min": 0.23
+  }
+}
