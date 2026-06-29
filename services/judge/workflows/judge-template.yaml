@@ -1,0 +1,60 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: judge-run
+  namespace: ai-obs
+spec:
+  entrypoint: judge
+  serviceAccountName: judge-worker
+  arguments:
+    parameters:
+      - name: run_id
+      - name: span_id
+        value: ""
+      - name: input
+      - name: output
+      - name: dimensions
+        value: "factuality,relevance,harmfulness"
+      - name: n_judges
+        value: "3"
+  templates:
+    - name: judge
+      steps:
+        - - name: call-judge
+            template: call-judge-api
+        - - name: persist
+            template: persist-result
+    - name: call-judge-api
+      container:
+        image: ghcr.io/halgorn/ai-observability-platform/judge:latest
+        env:
+          - name: INGEST_API_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: judge-secrets
+                key: token
+        command: [python, -m, ai_obs.judge_runner]
+        args:
+          - "--run-id={{workflow.parameters.run_id}}"
+          - "--span-id={{workflow.parameters.span_id}}"
+          - "--input={{workflow.parameters.input}}"
+          - "--output={{workflow.parameters.output}}"
+          - "--dimensions={{workflow.parameters.dimensions}}"
+          - "--n-judges={{workflow.parameters.n_judges}}"
+        resources:
+          requests: { cpu: 100m, memory: 256Mi }
+          limits:   { cpu: 1,    memory: 1Gi   }
+    - name: persist-result
+      container:
+        image: ghcr.io/halgorn/ai-observability-platform/judge:latest
+        env:
+          - name: POSTGRES_DSN
+            valueFrom:
+              secretKeyRef:
+                name: judge-secrets
+                key: postgres_dsn
+        command: [python, -m, ai_obs.persist_judges]
+        args:
+          - "--results=/tmp/judges.json"
+        resources:
+          requests: { cpu: 100m, memory: 128Mi }
