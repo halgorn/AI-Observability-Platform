@@ -1,0 +1,48 @@
+groups:
+  - name: ingest-api
+    interval: 30s
+    rules:
+      - alert: HighIngestRejectionRate
+        expr: |
+          rate(
+            sum(http_requests_total{status=~"4..",handler="/v1/events"}[5m])
+            /
+            sum(http_requests_total{handler="/v1/events"}[5m])
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: p2
+          slo: ingest.availability
+        annotations:
+          summary: "Ingest rejecting >10% of /v1/events requests"
+          runbook: "https://github.com/anomalyco/opencode/blob/main/specs/runbooks/ingest-down.md"
+
+      - alert: HighP99Latency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket{handler="/v1/events"}[5m])) by (le)
+          ) > 1.0
+        for: 10m
+        labels:
+          severity: p2
+          slo: ingest.latency
+        annotations:
+          summary: "p99 latency on /v1/events > 1s"
+
+      - alert: ReadinessFailing
+        expr: up{job="ingest-api"} == 0
+        for: 2m
+        labels:
+          severity: p1
+        annotations:
+          summary: "ingest-api is down"
+
+      - alert: DLQAccumulating
+        expr: |
+          sum(rate(http_requests_total{status=~"4..",handler="/v1/events"}[5m])) > 0.5
+        for: 15m
+        labels:
+          severity: p2
+        annotations:
+          summary: "Events being rejected — check DLQ"
+          runbook: "https://github.com/anomalyco/opencode/blob/main/specs/runbooks/ingest-down.md"

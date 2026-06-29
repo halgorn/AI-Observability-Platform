@@ -1,0 +1,63 @@
+# Fly.io configuration for ingest-api
+# PRD §12 — Deploy backend: Fly.io · Multi-region
+# Spec: specs/domains/12-infra.md
+
+app = "ai-obs-ingest"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8000"
+  SPEC_ROOT = "/app/specs"
+  OTEL_SERVICE_NAME = "ingest-api"
+  OTEL_TRACES_EXPORTER = "otlp"
+  OTEL_EXPORTER_OTLP_ENDPOINT = "http://otel-collector:4317"
+  LOG_LEVEL = "info"
+  PII_MODE = "redact"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [http_service.checks]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    timeout = "3s"
+
+    [[http_service.checks.interval_checks]]
+      name = "healthz"
+      path = "/v1/healthz"
+
+    [[http_service.checks.interval_checks]]
+      name = "readyz"
+      path = "/v1/readyz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[deploy]
+  release_command = "echo 'no migrations for v0'"
+  strategy = "bluegreen"
+
+[[services.tcp]]
+  protocol = "tcp"
+  internal_port = 8000
+
+[metrics]
+  port = 8000
+  path = "/metrics"

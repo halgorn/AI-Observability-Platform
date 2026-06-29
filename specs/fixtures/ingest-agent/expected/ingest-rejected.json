@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "INGEST_REJECTED",
+    "message": "payload is required",
+    "request_id": "req_xxx",
+    "details": {
+      "field": "payload",
+      "reason": "missing_required"
+    }
+  }
+}

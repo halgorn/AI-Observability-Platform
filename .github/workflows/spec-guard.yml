@@ -1,0 +1,47 @@
+name: spec-guard
+
+on:
+  pull_request:
+    paths:
+      - "specs/**"
+      - ".github/workflows/spec-guard.yml"
+      - "services/**/app/**"
+      - "packages/**"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changed-specs:
+    name: Detect contract drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install jsonschema
+      - name: List changed spec files
+        run: |
+          git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'specs/' > /tmp/changed.txt
+          cat /tmp/changed.txt
+      - name: Verify enum consistency
+        run: make spec-lint
+      - name: Check breaking changes flagged
+        if: env.CHANGED_BREAKING == 'true'
+        run: |
+          echo "::error::Breaking change detected in spec — bump version or add ADR"
+          exit 1
+        env:
+          CHANGED_BREAKING: ${{ steps.detect.outputs.breaking }}
+      - name: Detect breaking changes
+        id: detect
+        run: |
+          breaking="false"
+          if grep -E "^-.*(schemas|domains)/.*\.v[0-9]+\.json" /tmp/changed.txt > /dev/null; then
+            breaking="true"
+          fi
+          echo "breaking=$breaking" >> $GITHUB_OUTPUT

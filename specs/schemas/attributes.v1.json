@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-obs.local/schemas/attributes.v1.json",
+  "title": "EventAttributes",
+  "description": "Whitelist de keys válidas em `attributes`. Keys fora desta lista = INGEST_REJECTED em modo strict; aceitas em modo compat com warning.",
+  "type": "object",
+  "additionalProperties": { "$ref": "#/$defs/Extension" },
+  "patternProperties": {
+    "^genai\\.": { "$ref": "#/$defs/GenAi" },
+    "^sampling\\.": { "$ref": "#/$defs/Sampling" },
+    "^slo\\.": { "$ref": "#/$defs/Slo" },
+    "^org\\.": { "$ref": "#/$defs/Org" },
+    "^replay\\.": { "$ref": "#/$defs/Replay" }
+  },
+  "$defs": {
+    "Extension": {
+      "description": "Custom org-level attributes. Requer prefix `ext.` e registro em org_registry.",
+      "type": "object",
+      "properties": {
+        "value": { "type": ["string", "number", "boolean"] },
+        "schema_ref": { "type": "string", "format": "uri" }
+      },
+      "required": ["value", "schema_ref"]
+    },
+    "GenAi": {
+      "description": "Atributos semânticos OpenTelemetry genai.*. Spec: opentelemetry-semantic-conventions 0.4.x",
+      "type": "object",
+      "properties": {
+        "value": { "type": ["string", "number", "boolean"] }
+      }
+    },
+    "Sampling": {
+      "type": "object",
+      "properties": {
+        "decision":        { "enum": ["record", "drop", "partial"] },
+        "reason":          { "type": "string" },
+        "rate":            { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "Slo": {
+      "type": "object",
+      "properties": {
+        "id":              { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$" },
+        "value":           { "type": "number" },
+        "target":          { "type": "number" },
+        "breach":          { "type": "boolean" }
+      }
+    },
+    "Org": {
+      "type": "object",
+      "properties": {
+        "id":     { "type": "string", "pattern": "^org_[a-zA-Z0-9]+$" },
+        "plan":   { "enum": ["free", "pro", "enterprise"] },
+        "region": { "type": "string", "pattern": "^[a-z]{2}-[a-z]+-[0-9]$" }
+      }
+    },
+    "Replay": {
+      "type": "object",
+      "properties": {
+        "session_id":   { "type": "string", "format": "uuid" },
+        "of_run_id":    { "type": "string", "format": "uuid" },
+        "diverged":     { "type": "boolean" },
+        "diverged_at":  { "type": ["integer", "null"] },
+        "mock_llm":     { "type": "boolean" },
+        "mock_tools":   { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

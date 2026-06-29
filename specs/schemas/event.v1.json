@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-obs.local/schemas/event.v1.json",
+  "title": "RunEvent",
+  "type": "object",
+  "required": ["run_id", "span_id", "type", "started_at", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "run_id":         { "type": "string", "format": "uuid" },
+    "parent_span_id": { "type": ["string", "null"], "pattern": "^[0-9a-f]{16}$" },
+    "span_id":        { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "type":           { "$ref": "#/$defs/EventType" },
+    "agent":          { "type": ["string", "null"], "pattern": "^[a-z0-9_-]{1,64}$" },
+    "tool":           { "type": ["string", "null"], "pattern": "^[a-z0-9_.-]{1,64}$" },
+    "llm_model":      { "type": ["string", "null"] },
+    "started_at":     { "type": "string", "format": "date-time" },
+    "ended_at":       { "type": ["string", "null"], "format": "date-time" },
+    "duration_ms":    { "type": ["integer", "null"], "minimum": 0 },
+    "tokens_in":      { "type": ["integer", "null"], "minimum": 0 },
+    "tokens_out":     { "type": ["integer", "null"], "minimum": 0 },
+    "cost_usd":       { "type": ["number", "null"], "minimum": 0 },
+    "error_code":     { "oneOf": [{ "$ref": "#/$defs/ErrorCode" }, { "type": "null" }] },
+    "error_code":     { "oneOf": [{ "$ref": "#/$defs/ErrorCode" }, { "type": "null" }] },
+    "payload":        { "type": "object" },
+    "attributes":     { "type": "object", "additionalProperties": true }
+  },
+  "$defs": {
+    "EventType": {
+      "enum": [
+        "llm.call","tool.invoke","handoff","checkpoint",
+        "error","judge.result","run.start","run.end",
+        "step.start","step.end","artifact.link"
+      ]
+    },
+    "ErrorCode": {
+      "enum": [
+        "LLM_TIMEOUT","LLM_RATE_LIMIT","LLM_INVALID_OUTPUT",
+        "TOOL_TIMEOUT","TOOL_NOT_FOUND","TOOL_INVALID_ARGS",
+        "HANDOFF_REJECTED","CHECKPOINT_MISSING","REPLAY_DIVERGED",
+        "JUDGE_DISAGREEMENT","INGEST_REJECTED","SCHEMA_INVALID",
+        "AUTH_MISSING","AUTH_FORBIDDEN","AUTH_ROLE_INSUFFICIENT",
+        "AUTH_TOKEN_EXPIRED","AUTH_TOKEN_INVALID",
+        "BUDGET_EXCEEDED","PII_DETECTED",
+        "GDPR_ERASURE_PENDING","GDPR_ERASURE_FAILED","GDPR_EXPORT_FORBIDDEN",
+        "SANDBOX_BOOT_FAILED","SANDBOX_SECCOMP_VIOLATION",
+        "SANDBOX_NETWORK_VIOLATION","SANDBOX_TIMEOUT","SANDBOX_OOM",
+        "SPEC_VERSION_UNSUPPORTED","RATE_LIMITED",
+        "RUN_NOT_FOUND","RUN_ALREADY_TERMINAL",
+        "INTERNAL_ERROR","DEPENDENCY_DOWN","UNKNOWN"
+      ]
+    }
+  }
+}

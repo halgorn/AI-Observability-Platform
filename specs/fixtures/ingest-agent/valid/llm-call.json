@@ -1,0 +1,27 @@
+{
+  "run_id": "019065a1-7c8e-7abc-9def-1234567890ab",
+  "span_id": "0aaa1bb0c0ffee01",
+  "type": "llm.call",
+  "agent": "planner",
+  "llm_model": "openai/gpt-4o-mini",
+  "started_at": "2026-06-29T12:00:00.000Z",
+  "ended_at": "2026-06-29T12:00:01.234Z",
+  "duration_ms": 1234,
+  "tokens_in": 342,
+  "tokens_out": 128,
+  "cost_usd": 0.000128,
+  "payload": {
+    "model": "openai/gpt-4o-mini",
+    "messages_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+    "messages_size": 8421,
+    "finish_reason": "stop",
+    "system_prompt_version": "v3.1.0",
+    "cache_hit": false,
+    "stream": false
+  },
+  "attributes": {
+    "genai.run.id": "019065a1-7c8e-7abc-9def-1234567890ab",
+    "genai.agent.name": "planner",
+    "genai.llm.model": "openai/gpt-4o-mini"
+  }
+}

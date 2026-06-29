@@ -1,0 +1,22 @@
+{
+  "run_id": "019065a1-7c8e-7abc-9def-1234567890ab",
+  "span_id": "0aaa1bb0c0ffee01",
+  "type": "tool.invoke",
+  "tool": "browser.fetch",
+  "started_at": "2026-06-29T12:00:00.000Z",
+  "ended_at": "2026-06-29T12:00:00.456Z",
+  "duration_ms": 456,
+  "payload": {
+    "tool": "browser.fetch",
+    "args_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+    "result_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+    "result_size": 2048,
+    "cache_hit": false,
+    "retry_count": 0,
+    "side_effect": false
+  },
+  "attributes": {
+    "genai.run.id": "019065a1-7c8e-7abc-9def-1234567890ab",
+    "genai.tool.name": "browser.fetch"
+  }
+}

@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-obs.local/schemas/event-types.v1.json",
+  "title": "EventTypePayloads",
+  "description": "Sub-shape obrigatório de `payload` por `type`. Validado no ingest via discriminator.",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/RunStart" },
+    { "$ref": "#/$defs/RunEnd" },
+    { "$ref": "#/$defs/StepStart" },
+    { "$ref": "#/$defs/StepEnd" },
+    { "$ref": "#/$defs/LlmCall" },
+    { "$ref": "#/$defs/ToolInvoke" },
+    { "$ref": "#/$defs/Handoff" },
+    { "$ref": "#/$defs/Checkpoint" },
+    { "$ref": "#/$defs/Error" },
+    { "$ref": "#/$defs/JudgeResult" },
+    { "$ref": "#/$defs/ArtifactLink" }
+  ],
+  "$defs": {
+    "RunStart": {
+      "type": "object",
+      "required": ["input_hash", "agent"],
+      "additionalProperties": false,
+      "properties": {
+        "input_hash":       { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "input_size":       { "type": "integer", "minimum": 0 },
+        "input_ref":        { "type": "string", "description": "S3 URI do input raw (opcional, opt-in)" },
+        "agent":            { "type": "string", "pattern": "^[a-z0-9_-]{1,64}$" },
+        "thread_id":        { "type": ["string", "null"] },
+        "prompt_version":   { "type": ["string", "null"], "pattern": "^v\\d+\\.\\d+\\.\\d+$" },
+        "parent_run_id":    { "type": ["string", "null"], "format": "uuid" },
+        "squad":            { "type": ["array", "null"], "items": { "type": "string" } }
+      }
+    },
+    "RunEnd": {
+      "type": "object",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status":          { "enum": ["succeeded", "failed", "timeout", "cancelled"] },
+        "output_hash":     { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "output_size":     { "type": ["integer", "null"], "minimum": 0 },
+        "output_ref":      { "type": ["string", "null"] },
+        "total_steps":     { "type": "integer", "minimum": 0 },
+        "total_tokens":    { "type": "integer", "minimum": 0 },
+        "total_cost_usd":  { "type": "number", "minimum": 0 },
+        "failure_step":    { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "StepStart": {
+      "type": "object",
+      "required": ["step"],
+      "additionalProperties": false,
+      "properties": {
+        "step":      { "type": "integer", "minimum": 0 },
+        "agent":     { "type": ["string", "null"], "pattern": "^[a-z0-9_-]{1,64}$" },
+        "intent":    { "type": ["string", "null"], "maxLength": 200 }
+      }
+    },
+    "StepEnd": {
+      "type": "object",
+      "required": ["step", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "step":       { "type": "integer", "minimum": 0 },
+        "status":     { "enum": ["succeeded", "failed", "timeout", "cancelled", "skipped"] },
+        "state_hash": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "LlmCall": {
+      "type": "object",
+      "required": ["model"],
+      "additionalProperties": false,
+      "properties": {
+        "model":                  { "type": "string", "pattern": "^[a-z0-9_-]+/[a-z0-9._:-]+$" },
+        "messages_hash":          { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "messages_size":          { "type": "integer", "minimum": 0 },
+        "messages_ref":           { "type": ["string", "null"] },
+        "finish_reason":          { "enum": ["stop", "length", "tool_calls", "content_filter", "error"] },
+        "system_prompt_version":  { "type": ["string", "null"], "pattern": "^v\\d+\\.\\d+\\.\\d+$" },
+        "cache_hit":              { "type": "boolean" },
+        "stream":                 { "type": "boolean" }
+      }
+    },
+    "ToolInvoke": {
+      "type": "object",
+      "required": ["tool", "args_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "tool":         { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+        "args_hash":    { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "args_ref":     { "type": ["string", "null"] },
+        "result_hash":  { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "result_size":  { "type": ["integer", "null"], "minimum": 0 },
+        "result_ref":   { "type": ["string", "null"] },
+        "cache_hit":    { "type": "boolean" },
+        "retry_count":  { "type": "integer", "minimum": 0, "maximum": 10 },
+        "side_effect":  { "type": "boolean", "description": "true se tool tem efeito colateral (write, send, etc.)" }
+      }
+    },
+    "Handoff": {
+      "type": "object",
+      "required": ["from", "to", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "from":         { "type": "string", "pattern": "^[a-z0-9_-]{1,64}$" },
+        "to":           { "type": "string", "pattern": "^[a-z0-9_-]{1,64}$" },
+        "reason":       { "enum": ["delegation", "escalation", "fallback", "retry"] },
+        "payload_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "payload_ref":  { "type": ["string", "null"] }
+      }
+    },
+    "Checkpoint": {
+      "type": "object",
+      "required": ["step", "state_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "step":        { "type": "integer", "minimum": 0 },
+        "state_hash":  { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "state_size":  { "type": "integer", "minimum": 0 },
+        "state_ref":   { "type": ["string", "null"] },
+        "thread_id":   { "type": "string" }
+      }
+    },
+    "Error": {
+      "type": "object",
+      "required": ["code"],
+      "additionalProperties": false,
+      "properties": {
+        "code":       { "$ref": "event.v1.json#/$defs/ErrorCode" },
+        "message":    { "type": "string", "maxLength": 2000 },
+        "retryable":  { "type": "boolean" },
+        "stack":      { "type": ["string", "null"], "description": "redacted; nunca inclui PII" },
+        "cause":      { "type": ["string", "null"] }
+      }
+    },
+    "JudgeResult": {
+      "type": "object",
+      "required": ["model", "dimension", "score"],
+      "additionalProperties": false,
+      "properties": {
+        "model":      { "type": "string", "pattern": "^[a-z0-9_-]+/[a-z0-9._:-]+$" },
+        "dimension":  { "enum": ["factuality", "relevance", "harmfulness", "coherence", "completeness"] },
+        "score":      { "type": "number", "minimum": 0, "maximum": 1 },
+        "rationale":  { "type": "string", "maxLength": 1000 },
+        "cache_hit":  { "type": "boolean" },
+        "prompt_version": { "type": "string", "pattern": "^v\\d+\\.\\d+\\.\\d+$" }
+      }
+    },
+    "ArtifactLink": {
+      "type": "object",
+      "required": ["artifact_hash", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "kind":          { "enum": ["prompt", "agent_code", "tool_io", "llm_io", "embedding"] },
+        "ref":           { "type": "string", "description": "S3 URI do artifact" },
+        "size_bytes":    { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

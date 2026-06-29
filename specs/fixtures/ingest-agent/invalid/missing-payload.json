@@ -1,0 +1,6 @@
+{
+  "run_id": "019065a1-7c8e-7abc-9def-1234567890ab",
+  "span_id": "0aaa1bb0c0ffee01",
+  "started_at": "2026-06-29T12:00:00.000Z",
+  "type": "llm.call"
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-obs.local/schemas/span.v1.json",
+  "title": "OTelSpan (genai.*)",
+  "type": "object",
+  "required": ["trace_id", "span_id", "name", "start_time_unix_nano", "end_time_unix_nano", "attributes"],
+  "properties": {
+    "trace_id":              { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "span_id":               { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "parent_span_id":        { "type": ["string", "null"], "pattern": "^[0-9a-f]{16}$" },
+    "name":                  { "type": "string", "pattern": "^[a-z0-9._-]+$" },
+    "kind":                  { "enum": ["INTERNAL","CLIENT","SERVER","PRODUCER","CONSUMER"] },
+    "start_time_unix_nano":  { "type": "integer", "minimum": 0 },
+    "end_time_unix_nano":    { "type": "integer", "minimum": 0 },
+    "status":                { "type": "object", "properties": { "code": { "enum": ["OK","ERROR","UNSET"] }, "message": { "type": "string" } } },
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "genai.agent.name":           { "type": "string" },
+        "genai.tool.name":            { "type": "string" },
+        "genai.llm.model":            { "type": "string" },
+        "genai.llm.tokens.input":     { "type": "integer", "minimum": 0 },
+        "genai.llm.tokens.output":    { "type": "integer", "minimum": 0 },
+        "genai.llm.cost.usd":         { "type": "number", "minimum": 0 },
+        "genai.handoff.from":         { "type": "string" },
+        "genai.handoff.to":           { "type": "string" },
+        "genai.run.id":               { "type": "string", "format": "uuid" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-obs.local/schemas/judge-result.v1.json",
+  "title": "JudgeResult",
+  "type": "object",
+  "required": ["run_id", "span_id", "model", "dimension", "score"],
+  "properties": {
+    "run_id":    { "type": "string", "format": "uuid" },
+    "span_id":   { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "model":     { "type": "string" },
+    "dimension": { "enum": ["factuality","relevance","harmfulness","coherence","completeness"] },
+    "score":     { "type": "number", "minimum": 0, "maximum": 1 },
+    "rationale": { "type": "string" },
+    "cache_hit": { "type": "boolean" },
+    "judged_at": { "type": "string", "format": "date-time" }
+  }
+}
