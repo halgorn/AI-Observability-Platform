@@ -1,12 +1,15 @@
-.PHONY: spec-lint spec-lint-verbose spec-fix test-ingest test-all build-ingest run-ingest docker-ingest ci help
+.PHONY: spec-lint spec-lint-verbose spec-fix test test-ingest test-sdk test-query test-all build-ingest run-ingest ci help
 
 help:
 	@echo "Targets:"
 	@echo "  make spec-lint           run all spec checks (silent)"
 	@echo "  make spec-lint-verbose   show all warnings"
 	@echo "  make spec-fix            show external refs needing code"
+	@echo "  make test                run all tests (sdk + ingest + query)"
 	@echo "  make test-ingest         run ingest-api tests"
-	@echo "  make test-all            run spec lint + all service tests"
+	@echo "  make test-sdk            run SDK tests"
+	@echo "  make test-query          run query-api tests"
+	@echo "  make test-all            run spec lint + all tests"
 	@echo "  make build-ingest        build ingest-api Docker image"
 	@echo "  make run-ingest          run ingest-api in Docker"
 	@echo "  make ci                  what CI runs"
@@ -20,11 +23,20 @@ spec-lint-verbose:
 spec-fix:
 	@python3 specs/tools/check_refs.py 2>&1 | grep "⚠️"
 
+test-sdk:
+	@cd packages/ai-obs-sdk && pytest tests/ --cov=src/ai_obs
+
 test-ingest:
 	@cd services/ingest-api && pytest tests/ --cov=app --cov-report=term-missing
 
-test-all: spec-lint test-ingest
+test-query:
+	@cd services/query-api && pytest tests/ --cov=app
+
+test: test-sdk test-ingest test-query
 	@echo "✓ all tests passed"
+
+test-all: spec-lint test
+	@echo "✓ everything green"
 
 build-ingest:
 	docker build -t ingest-api -f services/ingest-api/Dockerfile .
@@ -36,5 +48,5 @@ run-ingest: build-ingest
 	  -e PII_MODE=redact \
 	  ingest-api
 
-ci: spec-lint test-ingest
+ci: spec-lint test
 	@echo "✓ CI green"
