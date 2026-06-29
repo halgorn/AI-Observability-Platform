@@ -66,6 +66,13 @@ class FakeQueryStore(QueryStore):
     async def similar_runs(self, run_id, org_id, *, limit=10):
         return self._similar[:limit]
 
+    async def fetch_handoffs(self, *, org_id, days, agent=None):
+        events = self._events.get("019065a1-7c8e-7abc-9def-111111111111", [])
+        return [e for e in events if e.get("type") == "handoff"]
+
+    async def query_raw(self, sql):
+        return [{"cost_usd_total": 0.5, "agent": "planner"}]
+
     async def connect(self): pass
     async def close(self): pass
 
@@ -184,3 +191,36 @@ def test_compare_runs_requires_both(client, auth_token):
                     headers={"Authorization": f"Bearer {auth_token}"},
                     json={"run_a": "x"})
     assert r.status_code == 400
+
+
+def test_handoffs_endpoint(client, auth_token):
+    r = client.get("/v1/agents/handoffs?since=7d",
+                   headers={"Authorization": f"Bearer {auth_token}"})
+    assert r.status_code == 200
+    body = r.json()
+    assert "items" in body
+    assert body["since"] == "7d"
+
+
+def test_cost_by_agent(client, auth_token):
+    r = client.get("/v1/cost/by_agent?since=24h",
+                   headers={"Authorization": f"Bearer {auth_token}"})
+    assert r.status_code == 200
+
+
+def test_cost_by_tool(client, auth_token):
+    r = client.get("/v1/cost/by_tool?since=7d",
+                   headers={"Authorization": f"Bearer {auth_token}"})
+    assert r.status_code == 200
+
+
+def test_cost_by_prompt(client, auth_token):
+    r = client.get("/v1/cost/by_prompt?since=7d",
+                   headers={"Authorization": f"Bearer {auth_token}"})
+    assert r.status_code == 200
+
+
+def test_cost_by_day(client, auth_token):
+    r = client.get("/v1/cost/by_day?since=30d",
+                   headers={"Authorization": f"Bearer {auth_token}"})
+    assert r.status_code == 200

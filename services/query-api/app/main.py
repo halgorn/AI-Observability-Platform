@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from .auth import TokenStore
 from .db.store import QueryStore
+from .routers import analytics as analytics_router
 from .routers import query as query_router
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ def create_app(
     if store is not None:
         app.state.store = store
     app.include_router(query_router.router)
+    app.include_router(analytics_router.router)
 
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):

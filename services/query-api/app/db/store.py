@@ -133,6 +133,29 @@ class QueryStore:
             except asyncpg.UndefinedFunctionError:
                 return []
 
+    async def fetch_handoffs(self, *, org_id: str, days: int, agent: Optional[str] = None) -> list[dict]:
+        assert self._pool is not None
+        sql = "SELECT * FROM events WHERE org_id = $1 AND type = 'handoff' AND started_at > now() - interval '%d days'" % days
+        args: list = [org_id]
+        if agent:
+            sql += " AND agent = $2"
+            args.append(agent)
+        sql += " ORDER BY started_at DESC"
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(sql, *args)
+        return [_row_to_event(r) for r in rows]
+
+    async def query_raw(self, sql: str) -> list[dict]:
+        """Run a raw SQL against the configured backend.
+
+        For Postgres: returns rows.
+        For ClickHouse (via mirror): not implemented yet — use Postgres.
+        """
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(sql)
+        return [dict(r) for r in rows]
+
 
 def _row_to_event(row: Any) -> dict:
     span_id = row["span_id"]
