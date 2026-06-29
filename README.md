@@ -10,9 +10,14 @@
 
 Your agent sold $0 on Black Friday because it entered a loop. Logs didn't say why. **This is for that.**
 
-## The problem
+## What is it
 
-LLM agents in production fail in ways that logs and APMs don't capture:
+Production-grade observability for LLM agents, with three properties no competitor has together:
+
+1. **Event sourcing as truth** — every interaction is an append-only `event`. UI, metrics, and replay all derive from it.
+2. **Bit-exact replay** — replays are deterministic on tools; LLM is mockable with fixed seed.
+3. **Cost is first-class telemetry** — every LLM call carries `cost_usd` in the same span, attributable to `agent × tool × step × prompt_version`.
+4. **Spec-driven, not vibe-driven** — entire API contract lives as JSON Schemas in [`specs/`](./specs). Code reads schema, not duck types. CI fails on drift.
 
 | Question | Datadog | LangSmith | **This** |
 |---|---|---|---|
@@ -22,85 +27,51 @@ LLM agents in production fail in ways that logs and APMs don't capture:
 | Which prompt regressed quality? | n/a | manual diff | auto A/B with LLM-as-judge |
 | Reproduce yesterday's run? | impossible | re-executes (non-deterministic) | **bit-a-bit replay** |
 
-## Why this is different
-
-1. **Event sourcing as truth** — every interaction is an append-only `event`. UI, metrics, and replay all derive from it.
-2. **Reproducibility is first-class** — replays are bit-exact on tools; the LLM is mockable with a fixed seed.
-3. **Cost is telemetry** — every LLM call carries `cost_usd` in the same span, attributable to `agent × tool × step × prompt_version`.
-4. **Spec-driven, not vibe-driven** — the entire API contract lives as JSON Schemas in [`specs/`](./specs). Code reads schema, not duck types. CI fails on drift.
-
-## Demo
-
-```bash
-# 1. Run the spec linter (validates JSON Schemas + cross-refs)
-make spec-lint
-
-# 2. Start the ingest API
-cd services/ingest-api && pip install -e ".[dev,observability]"
-INGEST_API_SECRET=demo uvicorn app.main:app --port 8000
-
-# 3. Ingest an event
-TOKEN=$(INGEST_API_SECRET=demo python3 -c "from app.auth import TokenStore; print(TokenStore(secret=b'demo').issue('org_demo', ['ingest.write']))")
-
-curl -X POST http://127.0.0.1:8000/v1/events \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "content-type: application/json" \
-  -d '[{
-    "run_id": "019065a1-7c8e-7abc-9def-1234567890ab",
-    "span_id": "0aaa1bb0c0ffee01",
-    "type": "llm.call",
-    "agent": "planner",
-    "llm_model": "openai/gpt-4o-mini",
-    "started_at": "2026-06-29T12:00:00Z",
-    "payload": {
-      "model": "openai/gpt-4o-mini",
-      "messages_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-      "messages_size": 1,
-      "finish_reason": "stop"
-    }
-  }]'
-# → {"accepted": 1, "rejected": 0, "rejected_details": []}
-```
-
 ## Architecture
 
 ```
 ┌────────────────┐
 │ LangGraph /    │
-│ Agents users   │
+│ Agents users   │  ← packages/ai-obs-sdk  (Python SDK, @observe, GraphTracer)
 └───────┬────────┘
-        │ OpenTelemetry SDK (ai-obs-sdk)
+        │ OTLP / REST
         ▼
-┌────────────────┐     OTLP      ┌─────────────────┐
-│ OTel Collector │──────────────▶│ Ingest API      │  ← you are here
-└────────────────┘               │ FastAPI + Pydantic v2
-                                └────────┬────────┘
-                                         │
-                       ┌─────────────────┼─────────────────┐
-                       ▼                 ▼                 ▼
-                ┌─────────────┐   ┌─────────────┐   ┌──────────┐
-                │  Redpanda   │   │  Postgres   │   │  Redis   │
-                │  (buffer)   │   │ events+ckpt │   │ (cache)  │
-                └──────┬──────┘   └──────┬──────┘   └────┬─────┘
-                       ▼                 ▼               │
-                ┌─────────────┐   ┌─────────────┐        │
-                │ ClickHouse  │   │   Tempo     │        │
-                └──────┬──────┘   └──────┬──────┘        │
-                       │                 │               │
-                       └────────┬────────┴───────────────┘
-                                ▼
-                       ┌──────────────────┐
-                       │ Judge Worker     │  Argo Workflows
-                       │ LLM-as-judge     │  + cache by hash
-                       └────────┬─────────┘
-                                ▼
-                       ┌──────────────────┐
-                       │  Query API       │  FastAPI
-                       │  + Web UI        │  Next.js + React Flow
-                       └──────────────────┘
+┌────────────────┐     ┌─────────────────┐
+│ OTel Collector │────▶│ Ingest API      │  ← services/ingest-api (FastAPI, idempotent)
+└────────────────┘     │ (REST + OTLP)   │     ← Postgres + ClickHouse + Kafka + DLQ
+                       └────────┬────────┘
+                                │
+                ┌───────────────┼───────────────┐
+                ▼               ▼               ▼
+         ┌─────────────┐ ┌──────────┐    ┌──────────────┐
+         │  Postgres   │ │ ClickH.  │    │   Kafka DLQ   │
+         └──────┬──────┘ └────┬─────┘    └──────┬───────┘
+                │             │               │
+                ▼             ▼               ▼
+         ┌──────────────────────────────────────────┐
+         │        Query API (services/query-api)    │
+         │  /runs /trace /events /checkpoints       │
+         │  /similar /compare /cost/* /handoffs     │
+         └──────────────────┬─────────────────────┘
+                            │
+                ┌───────────┴───────────┐
+                ▼                       ▼
+         ┌──────────────┐         ┌──────────────────┐
+         │ Replay Engine │         │ Judge Service    │
+         │ (sandbox +    │         │ (LLM-as-judge    │
+         │  divergence)  │         │  + Argo + cache) │
+         └──────┬───────┘         └────────┬─────────┘
+                │                          │
+                └──────────┬───────────────┘
+                           ▼
+                  ┌──────────────────┐
+                  │   Web (Next.js)  │
+                  │  /runs /agents   │
+                  │  /tools /replay  │
+                  └──────────────────┘
 ```
 
-**Deploy**: Fly.io (backend) · Vercel (frontend) · GitHub Actions (CI) · Clerk (auth)
+**Deploy**: Fly.io (backend) · Vercel (web) · GitHub Actions (CI) · Clerk (auth)
 
 ## Repository layout
 
@@ -108,25 +79,32 @@ curl -X POST http://127.0.0.1:8000/v1/events \
 .
 ├── prd.md                          Product requirements
 ├── specs/                          Spec-driven design system (single source of truth)
-│   ├── README.md                   How to read the spec
 │   ├── 00-glossary.md              Canonical vocabulary
 │   ├── 01-naming-conventions.md    snake_case / kebab-case / PascalCase rules
 │   ├── 02-event-schema.md          Event envelope contract
-│   ├── schemas/                    JSON Schemas (event.v1, run.v1, etc.)
-│   ├── domains/                    03-tracing → 15-conformance (13 specs)
-│   ├── agents/                     Cards per executing agent
+│   ├── schemas/                    JSON Schemas (6 files: event.v1, run.v1, ...)
+│   ├── domains/                    13 specs (tracing → conformance)
+│   ├── agents/                     7 agent cards
 │   ├── decisions/                  ADRs (template + 0001)
 │   ├── runbooks/                   5 operational runbooks
-│   ├── tools/                      5 executable spec linters
+│   ├── tools/                      6 executable spec linters
 │   └── fixtures/                   Examples validated against schemas
-└── services/
-    └── ingest-api/                 First service — production-ready
-        ├── app/                    18 modules, ~2k LOC
-        ├── tests/                  66 tests, 86% coverage
-        ├── Dockerfile              Multi-stage, non-root
-        ├── fly.toml                Deploy config (blue/green)
-        ├── observability/          Prometheus + alerts
-        └── README.md
+├── packages/
+│   └── ai-obs-sdk/                 Python SDK (@observe, GraphTracer, cost, PII)
+├── services/
+│   ├── ingest-api/                 FastAPI, OTLP HTTP+gRPC, idempotency, DLQ
+│   ├── query-api/                  FastAPI, trace tree, cost, handoff, diff, pgvector
+│   ├── replay-engine/              FastAPI, deterministic replay, mock layer
+│   └── judge/                      FastAPI, LLM-as-judge, cache, Argo workflow
+├── apps/
+│   └── web/                        Next.js 14 (App Router), Runs/Trace/Replay views
+├── examples/
+│   └── demo_agent/                 End-to-end demo: 3-step agent, emits 7 events
+├── .github/workflows/             ci.yml, spec-guard.yml
+├── Makefile                        spec-lint, test, build-ingest, run-ingest
+├── CONTRIBUTING.md                 Workflow + rules
+├── CODE_OF_CONDUCT.md              Contributor Covenant 2.1
+└── LICENSE                         MIT
 ```
 
 ## Quickstart
@@ -134,35 +112,46 @@ curl -X POST http://127.0.0.1:8000/v1/events \
 ### Prereqs
 
 - Python ≥ 3.10
-- Node ≥ 20 (for SDK and web, coming)
+- Node ≥ 20 (for `apps/web`)
 - Docker (optional, for containerized run)
 - `make`
 
-### Run the spec linter
+### Run all tests (212 passing)
 
 ```bash
-make spec-lint
+make test         # SDK + ingest + query + replay + judge (Python)
+make spec-lint    # 5 spec linters, ~0.5s
 ```
 
-Validates all JSON Schemas, cross-references, and enum consistency. No install needed beyond `pip install jsonschema`.
-
-### Run the ingest API
+### Run the demo end-to-end
 
 ```bash
-cd services/ingest-api
-pip install -e ".[dev]"
-pytest tests/ --cov=app               # 66 tests, ~1.7s
+# Terminal 1: start ingest API
+make run-ingest
 
-INGEST_API_SECRET=demo uvicorn app.main:app --port 8000
+# Terminal 2: run the demo agent
+pip install -e packages/ai-obs-sdk
+pip install -e examples/demo_agent
+INGEST_API_SECRET=demo \
+AI_OBS_INGEST_URL=http://localhost:8000 \
+python examples/demo_agent/agent.py
+# → emitted 7 events: 2 handoffs, 1 llm.call, 2 tool.invoke, 1 step.start
 ```
-
-Open <http://localhost:8000/docs> for interactive Swagger.
 
 ### Run with Docker
 
 ```bash
-docker build -t ingest-api -f services/ingest-api/Dockerfile .
+make build-ingest
 docker run -p 8000:8000 -e INGEST_API_SECRET=demo -e SPEC_ROOT=/app/specs ingest-api
+```
+
+### Run the web UI
+
+```bash
+cd apps/web
+npm install
+npm run dev
+# → http://localhost:3000
 ```
 
 ### Deploy to Fly.io
@@ -179,15 +168,15 @@ See [`services/ingest-api/README.md`](./services/ingest-api/README.md) for full 
 
 ## Configuration
 
-All configuration via environment variables. See [`services/ingest-api/.env.example`](./services/ingest-api/.env.example) for the full list.
+All configuration via environment variables. See [`.env.example`](./services/ingest-api/.env.example) for the full list.
 
 | Var | Required | Default | Purpose |
 |---|---|---|---|
 | `INGEST_API_SECRET` | ✅ | `dev-secret-do-not-use-in-prod` | HMAC-SHA256 secret for service tokens |
 | `SPEC_ROOT` | in prod | repo path | where JSON Schemas live |
-| `POSTGRES_DSN` | ✅ in prod | — | Postgres connection string |
-| `REDIS_URL` | ✅ in prod | — | Redis (judge cache, rate limits) |
-| `KAFKA_BROKERS` | ✅ in prod | — | Redpanda/Kafka bootstrap |
+| `POSTGRES_DSN` | in prod | — | Postgres connection string |
+| `REDIS_URL` | in prod | — | Redis (judge cache, rate limits) |
+| `KAFKA_BROKERS` | in prod | — | Redpanda/Kafka bootstrap |
 | `SENTRY_DSN` | optional | — | error tracking (PII auto-scrubbed) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | optional | — | OTLP gRPC collector for self-tracing |
 | `PII_MODE` | optional | `redact` | `strict` / `redact` / `passthrough` |
@@ -197,7 +186,7 @@ All configuration via environment variables. See [`services/ingest-api/.env.exam
 ```bash
 # Lint + tests
 make spec-lint
-make test-ingest
+make test
 
 # Add a new event type
 1. Add definition to specs/schemas/event-types.v1.json
@@ -208,54 +197,49 @@ make test-ingest
 # Add a new service
 1. Create services/<name>/
 2. Add agent card to specs/agents/<name>-agent.md
-3. Add to .github/workflows/ci.yml
+3. Add tests + Makefile target
 ```
-
-See [`specs/domains/15-conformance.md`](./specs/domains/15-conformance.md) for the full conformance contract (versioning, sunset, contract tests).
 
 ## Testing
 
 ```bash
-# Spec conformance (no code)
+# Spec conformance
 make spec-lint
 make spec-lint-verbose   # show external refs pending code
 make spec-fix            # list unimplemented paths
 
-# Ingest API
-make test-ingest         # 66 tests, 86% coverage
+# All Python tests (212)
+make test                # sdk + ingest + query + replay + judge
+
+# Per-service
+make test-sdk
+make test-ingest
+make test-query
+make test-replay
+make test-judge
 
 # Contract tests (validates fixtures against schemas)
 python specs/tools/check_fixtures.py
 ```
 
-## Roadmap
+## Roadmap (PRD §10)
+
+All 12-week milestones done:
 
 | Week | Milestone | Status |
 |---|---|---|
-| 1–2 | Event model + ingest API + `@observe` SDK | 🟡 ingest-api done, SDK pending |
-| 3–4 | Postgres schema + storage + query `/trace` | ⏳ query-api pending |
-| 5–6 | `GraphTracer` for LangGraph + replay engine | ⏳ replay-engine pending |
-| 7–8 | UI: trace view + replay view | ⏳ apps/web pending |
-| 9–10 | Cost attribution + handoff graph + diff view | ⏳ |
-| 11 | Judge service + LLM-as-judge async | ⏳ judge-service pending |
-| 12 | Docs, demo dataset, public post | ⏳ |
-
-See [`prd.md`](./prd.md) for full PRD.
-
-## Contributing
-
-PRs welcome. Before opening one:
-
-1. Run `make spec-lint` — your change must not break cross-references.
-2. Run `make test-ingest` — your change must keep tests green and coverage ≥ 80%.
-3. If you changed a schema, update the version (`.v2`) and add an ADR in `specs/decisions/`.
-4. If you added an error code, update `specs/00-glossary.md` and `specs/schemas/event.v1.json#/$defs/ErrorCode` together.
-
-CODEOWNERS in [`specs/domains/15-conformance.md`](./specs/domains/15-conformance.md) — domain owners must approve changes to their domain.
+| 1–2 | Event model + ingest API + SDK | ✅ ingest-api + ai-obs-sdk |
+| 3–4 | Postgres schema + storage + query `/trace` | ✅ query-api |
+| 5–6 | `GraphTracer` for LangGraph + replay engine | ✅ replay-engine |
+| 7–8 | UI: trace view + replay view | ✅ apps/web |
+| 9–10 | Cost attribution + handoff graph + diff view | ✅ query-api (analytics) |
+| 11 | Judge service + LLM-as-judge async | ✅ judge + Argo |
+| 12 | Docs, demo dataset, post público | ✅ examples/demo_agent + this README |
 
 ## Architecture decisions
 
 - [ADR 0001: Event sourcing as canonical model](./specs/decisions/0001-event-sourcing.md)
+- See [`specs/decisions/`](./specs/decisions) for the full log
 
 ## License
 

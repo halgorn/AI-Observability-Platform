@@ -17,18 +17,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install spec tools deps
-        run: pip install jsonschema
-      - name: Run all spec tools
-        run: make spec-lint-verbose
-      - name: List pending external refs
+      - run: pip install jsonschema
+      - run: make spec-lint-verbose
+      - run: make spec-fix | head -20
         if: always()
-        run: make spec-fix | head -20
+
+  test-sdk:
+    name: ai-obs-sdk tests
+    needs: spec-lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/ai-obs-sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ --cov=src/ai_obs --cov-fail-under=70 -q
 
   test-ingest:
     name: ingest-api tests
-    runs-on: ubuntu-latest
     needs: spec-lint
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: services/ingest-api
@@ -37,22 +49,59 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install service + dev deps
-        run: pip install -e ".[dev]"
-      - name: Run pytest with coverage
-        run: pytest tests/ --cov=app --cov-report=xml --cov-fail-under=80 -v
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
+      - run: pip install -e ".[dev,observability]"
+      - run: pytest tests/ --cov=app --cov-fail-under=80 -q
+
+  test-query:
+    name: query-api tests
+    needs: spec-lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/query-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          name: coverage-ingest
-          path: services/ingest-api/coverage.xml
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ --cov=app --cov-fail-under=70 -q
+
+  test-replay:
+    name: replay-engine tests
+    needs: spec-lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/replay-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ --cov=app --cov-fail-under=70 -q
+
+  test-judge:
+    name: judge tests
+    needs: spec-lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/judge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ --cov=app --cov-fail-under=70 -q
 
   build:
     name: Build Docker image
-    runs-on: ubuntu-latest
-    needs: [spec-lint, test-ingest]
+    needs: [test-ingest, test-query, test-replay, test-judge, test-sdk]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: services/ingest-api
@@ -60,7 +109,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
-        if: github.event_name == 'push'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -78,7 +126,6 @@ jobs:
 
   deploy-staging:
     name: Deploy to Fly.io (staging)
-    runs-on: ubuntu-latest
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: staging
