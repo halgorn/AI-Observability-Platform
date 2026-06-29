@@ -81,12 +81,22 @@ export interface AgentCostRow {
   call_count: number;
 }
 
+export interface HandoffEdge {
+  from: string;
+  to: string;
+  success_count: number;
+  total_count: number;
+  success_rate: number;
+}
+
 export const api = {
   analytics: {
     byTool: (since = "7d") =>
       request<{ items: ToolRow[]; since: string }>(`${QUERY_URL}/v1/cost/by_tool?since=${since}`),
     byAgent: (since = "7d") =>
       request<{ items: AgentCostRow[]; since: string }>(`${QUERY_URL}/v1/cost/by_agent?since=${since}`),
+    handoffs: (since = "7d") =>
+      request<{ items: HandoffEdge[]; since: string; count: number }>(`${QUERY_URL}/v1/agents/handoffs?since=${since}`),
   },
   runs: {
     list: (params?: { agent?: string; status?: string; since?: string; limit?: number }) => {
