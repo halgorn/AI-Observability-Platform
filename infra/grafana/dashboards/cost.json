@@ -1,0 +1,162 @@
+{
+  "uid": "ai-obs-cost",
+  "title": "Cost Attribution",
+  "tags": ["ai-observability"],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {"from": "now-7d", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "model",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(ai_obs_cost_usd_total, model)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "label": "Model"
+      },
+      {
+        "name": "agent",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(ai_obs_cost_usd_total, agent)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "label": "Agent"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total cost (7d)",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(increase(ai_obs_cost_usd_total{model=~\"$model\",agent=~\"$agent\"}[7d]))",
+          "legendFormat": "USD"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 4}}
+    },
+    {
+      "id": 2,
+      "title": "Cost today",
+      "type": "stat",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(increase(ai_obs_cost_usd_total{model=~\"$model\",agent=~\"$agent\"}[24h]))",
+          "legendFormat": "USD"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 4}}
+    },
+    {
+      "id": 3,
+      "title": "Cost per hour (rate)",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(ai_obs_cost_usd_total{model=~\"$model\",agent=~\"$agent\"}[1h])) * 3600",
+          "legendFormat": "USD/h"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 4}}
+    },
+    {
+      "id": 4,
+      "title": "Projected monthly cost",
+      "type": "stat",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(ai_obs_cost_usd_total{model=~\"$model\",agent=~\"$agent\"}[24h])) * 86400 * 30",
+          "legendFormat": "USD/mo"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2}}
+    },
+    {
+      "id": 5,
+      "title": "Cost over time (by model)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 4, "w": 24, "h": 8},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (model) (rate(ai_obs_cost_usd_total{model=~\"$model\",agent=~\"$agent\"}[1h])) * 3600",
+          "legendFormat": "{{model}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "custom": {"fillOpacity": 15, "stacking": {"mode": "normal"}}}}
+    },
+    {
+      "id": 6,
+      "title": "Cost breakdown by model (7d)",
+      "type": "piechart",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (model) (increase(ai_obs_cost_usd_total{model=~\"$model\",agent=~\"$agent\"}[7d]))",
+          "legendFormat": "{{model}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 7,
+      "title": "Cost breakdown by agent (7d)",
+      "type": "piechart",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (agent) (increase(ai_obs_cost_usd_total{model=~\"$model\",agent=~\"$agent\"}[7d]))",
+          "legendFormat": "{{agent}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 8,
+      "title": "Tokens consumed (7d) — by direction",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (direction) (rate(ai_obs_tokens_total{agent=~\"$agent\",model=~\"$model\"}[1h])) * 3600",
+          "legendFormat": "tokens {{direction}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"fillOpacity": 10}}}
+    },
+    {
+      "id": 9,
+      "title": "Top models by cost (7d)",
+      "type": "bargauge",
+      "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+      "options": {"orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "topk(10, sum by (model) (increase(ai_obs_cost_usd_total[7d])))",
+          "legendFormat": "{{model}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    }
+  ],
+  "schemaVersion": 36
+}

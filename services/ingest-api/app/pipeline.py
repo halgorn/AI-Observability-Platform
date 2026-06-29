@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .auth import ServiceToken, require_scope
+from .metrics import record_event
 from .errors import (
     IngestRejectedError, PiiDetectedError, RateLimitedError, SchemaInvalidError,
 )
@@ -100,9 +101,11 @@ async def process_batch(
         inserted = await deps.store.insert(event_dict)
         if inserted:
             accepted += 1
+            record_event(event_dict, status="accepted")
             await deps.bus.publish("events.raw", event_dict)
         else:
             rejected += 1
+            record_event(event_dict, status="duplicate")
             details.append({"index": i, "code": "INGEST_REJECTED", "message": "duplicate (run_id, span_id)"})
 
     return ProcessResult(accepted=accepted, rejected=rejected, details=details)

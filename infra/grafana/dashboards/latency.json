@@ -1,0 +1,184 @@
+{
+  "uid": "ai-obs-latency",
+  "title": "Latency & Performance",
+  "tags": ["ai-observability"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "agent",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(ai_obs_duration_ms_bucket, agent)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "label": "Agent"
+      },
+      {
+        "name": "model",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(ai_obs_duration_ms_bucket, model)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "label": "Model"
+      },
+      {
+        "name": "event_type",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(ai_obs_duration_ms_bucket, event_type)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "label": "Event Type"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "p50 LLM latency",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(ai_obs_duration_ms_bucket{agent=~\"$agent\",model=~\"$model\",event_type=~\"$event_type\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "id": 2,
+      "title": "p95 LLM latency",
+      "type": "stat",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(ai_obs_duration_ms_bucket{agent=~\"$agent\",model=~\"$model\",event_type=~\"$event_type\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms", "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 2000, "color": "yellow"}, {"value": 5000, "color": "red"}]}}}
+    },
+    {
+      "id": 3,
+      "title": "p99 LLM latency",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(ai_obs_duration_ms_bucket{agent=~\"$agent\",model=~\"$model\",event_type=~\"$event_type\"}[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms", "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 5000, "color": "yellow"}, {"value": 10000, "color": "red"}]}}}
+    },
+    {
+      "id": 4,
+      "title": "Throughput (events/min)",
+      "type": "stat",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(ai_obs_events_total{agent=~\"$agent\",status=\"accepted\"}[5m])) * 60",
+          "legendFormat": "ev/min"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 5,
+      "title": "Latency percentiles over time",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 4, "w": 24, "h": 9},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(ai_obs_duration_ms_bucket{agent=~\"$agent\",model=~\"$model\",event_type=~\"$event_type\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(ai_obs_duration_ms_bucket{agent=~\"$agent\",model=~\"$model\",event_type=~\"$event_type\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(ai_obs_duration_ms_bucket{agent=~\"$agent\",model=~\"$model\",event_type=~\"$event_type\"}[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms", "custom": {"fillOpacity": 5}}}
+    },
+    {
+      "id": 6,
+      "title": "p95 latency by agent",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 13, "w": 12, "h": 8},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (agent, le) (rate(ai_obs_duration_ms_bucket{agent=~\"$agent\",model=~\"$model\",event_type=~\"$event_type\"}[5m])))",
+          "legendFormat": "{{agent}} p95"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "id": 7,
+      "title": "p95 latency by model",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 13, "w": 12, "h": 8},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (model, le) (rate(ai_obs_duration_ms_bucket{agent=~\"$agent\",model=~\"$model\",event_type=~\"$event_type\"}[5m])))",
+          "legendFormat": "{{model}} p95"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "id": 8,
+      "title": "Slowest agents (p95, 1h avg)",
+      "type": "bargauge",
+      "gridPos": {"x": 0, "y": 21, "w": 12, "h": 7},
+      "options": {"orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum by (agent, le) (rate(ai_obs_duration_ms_bucket{event_type=~\"$event_type\"}[1h]))))",
+          "legendFormat": "{{agent}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "id": 9,
+      "title": "HTTP ingest p95 (end-to-end)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 21, "w": 12, "h": 7},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{handler=\"/v1/events\"}[5m])) by (le)) * 1000",
+          "legendFormat": "HTTP p95 ms"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{handler=\"/v1/events\"}[5m])) by (le)) * 1000",
+          "legendFormat": "HTTP p50 ms"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    }
+  ],
+  "schemaVersion": 36
+}
