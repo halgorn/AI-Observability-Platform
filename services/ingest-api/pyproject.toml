@@ -13,6 +13,9 @@ dependencies = [
     "redis>=5.0",
     "aiokafka>=0.11",
     "prometheus-fastapi-instrumentator>=7.0",
+    "grpcio>=1.65",
+    "protobuf>=5.27",
+    "opentelemetry-proto>=1.27",
 ]
 
 [project.optional-dependencies]
