@@ -32,7 +32,10 @@ test-ingest:
 test-query:
 	@cd services/query-api && pytest tests/ --cov=app
 
-test: test-sdk test-ingest test-query
+test-replay:
+	@cd services/replay-engine && pytest tests/ --cov=app
+
+test: test-sdk test-ingest test-query test-replay
 	@echo "✓ all tests passed"
 
 test-all: spec-lint test
