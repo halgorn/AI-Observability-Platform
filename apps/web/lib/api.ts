@@ -64,7 +64,30 @@ export interface ReplaySessionOut {
   status: string;
 }
 
+export interface ToolRow {
+  tool: string;
+  invocations: number;
+  errors: number;
+  total_duration_ms: number;
+}
+
+export interface AgentCostRow {
+  agent: string;
+  llm_model: string;
+  prompt_version: string | null;
+  cost_usd_total: number;
+  tokens_in_total: number;
+  tokens_out_total: number;
+  call_count: number;
+}
+
 export const api = {
+  analytics: {
+    byTool: (since = "7d") =>
+      request<{ items: ToolRow[]; since: string }>(`${QUERY_URL}/v1/cost/by_tool?since=${since}`),
+    byAgent: (since = "7d") =>
+      request<{ items: AgentCostRow[]; since: string }>(`${QUERY_URL}/v1/cost/by_agent?since=${since}`),
+  },
   runs: {
     list: (params?: { agent?: string; status?: string; since?: string; limit?: number }) => {
       const q = new URLSearchParams();
