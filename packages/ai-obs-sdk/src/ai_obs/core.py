@@ -126,6 +126,7 @@ class Tracer:
             ctx.otel_span.end()
         if ctx.sampled:
             event = self._build_event(ctx, result=result, error=error)
+            self._emit_langfuse(event)
             self._emit(event)
         set_span_id(ctx.parent_span_id)
         set_parent_span_id(ctx.parent_span_id)
@@ -133,6 +134,15 @@ class Tracer:
     def _build_event(self, ctx: "SpanContext", *, result: Any, error: Exception | None) -> dict:
         from .context import build_event_dict
         return build_event_dict(ctx, result=result, error=error, tracer=self)
+
+    def _emit_langfuse(self, event: dict) -> None:
+        try:
+            from .exporters.langfuse import is_enabled as _lf_enabled, export_event as _lf_export
+            if _lf_enabled():
+                _lf_export(event)
+        except Exception as e:
+            import traceback
+            logger.warning("langfuse export dispatch failed: %s\n%s", e, traceback.format_exc())
 
     def _emit(self, event: dict) -> None:
         with self._buffer_lock:
