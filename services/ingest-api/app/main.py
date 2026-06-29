@@ -31,6 +31,9 @@ class AppContext:
     bus: InMemoryBus
     token_store: TokenStore
     deps: PipelineDeps
+    postgres_dsn: str | None = None
+    kafka_brokers: str | None = None
+    clickhouse_url: str | None = None
 
 
 def create_app(
@@ -40,15 +43,35 @@ def create_app(
     pii_mode: str = "redact",
     enable_sentry: bool = True,
     health_checks: list | None = None,
+    postgres_dsn: str | None = None,
+    kafka_brokers: str | None = None,
+    clickhouse_url: str | None = None,
 ) -> FastAPI:
     if enable_sentry:
         init_sentry()
 
+    use_postgres = bool(os.environ.get("POSTGRES_DSN")) and bool(postgres_dsn is not False)
+    if use_postgres and postgres_dsn:
+        from .persistence.postgres.store import PostgresStore
+        ps = PostgresStore(postgres_dsn)
+        store = ps
+    else:
+        store = store or InMemoryStore()
+
+    if kafka_brokers or os.environ.get("KAFKA_BROKERS"):
+        from .persistence.kafka.bus import KafkaBus
+        bus = KafkaBus(bootstrap_servers=kafka_brokers or os.environ["KAFKA_BROKERS"])
+    else:
+        bus = bus or InMemoryBus()
+
     ctx = AppContext(
-        store=store or InMemoryStore(),
-        bus=bus or InMemoryBus(),
+        store=store,
+        bus=bus,
         token_store=token_store or TokenStore(),
         deps=None,
+        postgres_dsn=postgres_dsn,
+        kafka_brokers=kafka_brokers,
+        clickhouse_url=clickhouse_url,
     )
     ctx.deps = PipelineDeps(
         store=ctx.store,
