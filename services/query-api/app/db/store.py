@@ -92,8 +92,8 @@ class QueryStore:
         assert self._pool is not None
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT step, state_hash, thread_id, saved_at FROM checkpoints WHERE run_id = $1 AND org_id = $2 ORDER BY step",
-                run_id, org_id,
+                "SELECT step, state_hash, thread_id, saved_at FROM checkpoints WHERE run_id = $1 ORDER BY step",
+                run_id,
             )
         return [dict(r) for r in rows]
 

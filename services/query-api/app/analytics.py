@@ -13,47 +13,35 @@ from typing import Any, Optional
 
 COST_QUERIES_SQL = {
     "by_agent": """
-        SELECT agent, llm_model, prompt_version,
+        SELECT agent, llm_model,
                sum(cost_usd) AS cost_usd_total,
                sum(tokens_in) AS tokens_in_total,
                sum(tokens_out) AS tokens_out_total,
                count(*) AS call_count
-        FROM events_ch
+        FROM events
         WHERE type = 'llm.call'
           AND started_at > now() - interval '$days days'
           AND org_id = $org_id
-        GROUP BY agent, llm_model, prompt_version
+        GROUP BY agent, llm_model
         ORDER BY cost_usd_total DESC
     """,
     "by_tool": """
         SELECT tool, count(*) AS invocations,
                sum(CASE WHEN error_code IS NOT NULL THEN 1 ELSE 0 END) AS errors,
                sum(duration_ms) AS total_duration_ms
-        FROM events_ch
+        FROM events
         WHERE type = 'tool.invoke'
           AND started_at > now() - interval '$days days'
           AND org_id = $org_id
         GROUP BY tool
         ORDER BY invocations DESC
     """,
-    "by_prompt": """
-        SELECT prompt_version, count(DISTINCT run_id) AS runs,
-               sum(cost_usd) AS cost_usd_total,
-               avg(cost_usd) AS cost_usd_avg
-        FROM events_ch
-        WHERE type = 'llm.call'
-          AND prompt_version IS NOT NULL
-          AND started_at > now() - interval '$days days'
-          AND org_id = $org_id
-        GROUP BY prompt_version
-        ORDER BY cost_usd_total DESC
-    """,
     "by_day": """
         SELECT toDate(started_at) AS day,
                agent,
                sum(cost_usd) AS cost_usd_total,
                sum(tokens_in + tokens_out) AS tokens_total
-        FROM events_ch
+        FROM events
         WHERE type = 'llm.call'
           AND started_at > now() - interval '$days days'
           AND org_id = $org_id
@@ -65,7 +53,8 @@ COST_QUERIES_SQL = {
 
 def render_sql(name: str, days: int, org_id: str) -> str:
     template = COST_QUERIES_SQL[name]
-    return template.replace("$days", str(days)).replace("$org_id", org_id)
+    safe_org = org_id.replace("'", "''")
+    return template.replace("$days", str(days)).replace("$org_id", f"'{safe_org}'")
 
 
 def build_handoff_graph(events: list[dict]) -> list[dict]:

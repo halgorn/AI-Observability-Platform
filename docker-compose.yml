@@ -1,11 +1,29 @@
 version: "3.9"
 
-# Local dev stack: ingest-api + Grafana + Prometheus + ngrok
+# Local dev stack: ingest-api + query-api + Postgres + Grafana + Prometheus + ngrok
 # Usage:
 #   NGROK_AUTHTOKEN=<token> docker compose up
 #   INGEST_API_SECRET=mysecret NGROK_AUTHTOKEN=<token> docker compose up
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aiobs
+      POSTGRES_PASSWORD: aiobs
+      POSTGRES_DB: aiobs
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiobs -d aiobs"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   ingest-api:
     build:
       context: .
@@ -21,12 +39,40 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      POSTGRES_DSN: postgresql://aiobs:aiobs@postgres:5432/aiobs
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/v1/healthz"]
       interval: 10s
       timeout: 3s
       retries: 5
       start_period: 10s
+    restart: unless-stopped
+
+  query-api:
+    build:
+      context: .
+      dockerfile: services/query-api/Dockerfile
+    ports:
+      - "8011:8001"
+    environment:
+      POSTGRES_DSN: postgresql://aiobs:aiobs@postgres:5432/aiobs
+      INGEST_API_SECRET: ${INGEST_API_SECRET:-dev-secret-change-me}
+      DOCS_ENABLED: "1"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/v1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
 
   prometheus:
@@ -38,7 +84,7 @@ services:
       - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
-      - "9090:9090"
+      - "9091:9090"
     restart: unless-stopped
 
   grafana:
@@ -52,7 +98,7 @@ services:
       - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     ports:
-      - "3001:3000"
+      - "3002:3000"
     depends_on:
       - prometheus
     restart: unless-stopped
@@ -63,12 +109,13 @@ services:
     environment:
       NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
     ports:
-      - "4040:4040"
+      - "4041:4040"
     depends_on:
       ingest-api:
         condition: service_healthy
     restart: unless-stopped
 
 volumes:
+  postgres_data:
   prometheus_data:
   grafana_data:

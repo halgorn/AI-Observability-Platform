@@ -6,6 +6,7 @@ import os
 import uuid
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import TokenError, TokenStore
 from .engine import ReplayEngine
@@ -31,6 +32,32 @@ def _auth(request: Request, authorization: str | None) -> str:
 
 def create_app(*, token_store: TokenStore | None = None) -> FastAPI:
     app = FastAPI(title="replay-engine", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        from fastapi.responses import JSONResponse
+        origin = request.headers.get("origin")
+        headers = {}
+        if origin in ("http://localhost:3000", "http://127.0.0.1:3000"):
+            headers["Access-Control-Allow-Origin"] = origin
+            headers["Access-Control-Allow-Credentials"] = "true"
+            headers["Vary"] = "Origin"
+        return JSONResponse(
+            status_code=500,
+            content={"error": {"code": "INTERNAL", "message": str(exc)[:200]}},
+            headers=headers,
+        )
+
     app.state.token_store = token_store or TokenStore()
     app.state.session_store = InMemorySessionStore()
     app.state.engine = ReplayEngine(store=app.state.session_store)

@@ -4,6 +4,7 @@ Schema mirrors specs/domains/08-storage.md §Postgres + 14-data-governance §RLS
 """
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 from typing import Any
@@ -13,6 +14,16 @@ import asyncpg
 from ..protocols import EventStore
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_datetime(value: Any) -> datetime.datetime | None:
+    if value is None or isinstance(value, datetime.datetime):
+        return value
+    if isinstance(value, (int, float)):
+        return datetime.datetime.fromtimestamp(value, tz=datetime.timezone.utc)
+    if isinstance(value, str):
+        return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    raise TypeError(f"unsupported datetime value: {value!r}")
 
 
 class PostgresStore(EventStore):
@@ -109,14 +120,8 @@ class PostgresStore(EventStore):
         org_id = event.get("org_id") or self.org_id or "default"
         payload = json.dumps(event.get("payload", {}))
         attributes = json.dumps(event.get("attributes", {}))
-        started_at = event.get("started_at")
-        ended_at = event.get("ended_at")
-        if isinstance(started_at, (int, float)):
-            import datetime
-            started_at = datetime.datetime.fromtimestamp(started_at, tz=datetime.timezone.utc)
-        if isinstance(ended_at, (int, float)):
-            import datetime
-            ended_at = datetime.datetime.fromtimestamp(ended_at, tz=datetime.timezone.utc)
+        started_at = _coerce_datetime(event.get("started_at"))
+        ended_at = _coerce_datetime(event.get("ended_at"))
         try:
             async with self._pool.acquire() as conn:
                 async with conn.transaction():
@@ -151,9 +156,54 @@ class PostgresStore(EventStore):
                         attributes,
                         org_id,
                     )
+                    await self._upsert_run(conn, event, org_id, started_at, ended_at)
             return True
         except asyncpg.UniqueViolationError:
             return False
+
+    async def _upsert_run(
+        self, conn, event: dict, org_id: str, started_at, ended_at,
+    ) -> None:
+        event_type = event.get("type")
+        payload = event.get("payload") or {}
+        if event_type == "run.start":
+            await conn.execute("""
+                INSERT INTO runs (
+                    run_id, thread_id, agent, status, started_at,
+                    input_hash, prompt_version, parent_run_id, org_id
+                ) VALUES ($1, $2, $3, 'running', $4, $5, $6, $7, $8)
+                ON CONFLICT (run_id) DO NOTHING
+            """,
+                event["run_id"],
+                payload.get("thread_id"),
+                payload.get("agent") or event.get("agent"),
+                started_at,
+                payload.get("input_hash"),
+                payload.get("prompt_version"),
+                payload.get("parent_run_id"),
+                org_id,
+            )
+        elif event_type == "run.end":
+            run_ended_at = ended_at or started_at
+            await conn.execute("""
+                UPDATE runs SET
+                    status = $2,
+                    ended_at = $3,
+                    duration_ms = GREATEST(EXTRACT(EPOCH FROM ($3 - started_at)) * 1000, 0)::int,
+                    total_steps = $4,
+                    total_tokens = $5,
+                    total_cost_usd = $6,
+                    output_hash = $7
+                WHERE run_id = $1
+            """,
+                event["run_id"],
+                payload.get("status", "succeeded"),
+                run_ended_at,
+                payload.get("total_steps"),
+                payload.get("total_tokens"),
+                payload.get("total_cost_usd"),
+                payload.get("output_hash"),
+            )
 
     async def fetch_one(self, run_id: str, span_id: str) -> dict | None:
         assert self._pool is not None

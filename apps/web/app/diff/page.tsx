@@ -63,8 +63,8 @@ function MetricRow({ label, a, b, delta, fmt, lowerIsBetter, unit }: {
 
 // ── demo result ───────────────────────────────────────────────────────────────
 const DEMO: DiffResult = {
-  run_a: "run-abc123",
-  run_b: "run-def456",
+  run_a: "faa5691a-ecc1-4b4b-8bb6-45d69a1bae9f",
+  run_b: "00000000-0000-0000-0000-000000000001",
   dimension: null,
   diff: {
     cost_usd:     { a: 0.0184, b: 0.0312, delta:  0.0128 },

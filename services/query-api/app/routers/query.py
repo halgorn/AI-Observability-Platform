@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 
 from ..auth import ServiceToken, TokenError, TokenStore
 from ..trace_builder import build_trace
@@ -12,6 +13,16 @@ from ..trace_builder import build_trace
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _run_id(run_id: str = Path(...)) -> str:
+    try:
+        return str(uuid.UUID(run_id))
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_RUN_ID", "message": f"'{run_id}' is not a valid UUID"},
+        )
 
 
 def _auth(request: Request, authorization: Optional[str] = Header(default=None)) -> ServiceToken:
@@ -48,9 +59,10 @@ async def list_runs(
 @router.get("/v1/runs/{run_id}")
 async def get_run(
     request: Request,
-    run_id: str,
+    run_id: str = Path(...),
     authorization: Optional[str] = Header(default=None),
 ):
+    run_id = _run_id(run_id)
     token = _auth(request, authorization)
     store = request.app.state.store
     summary = await store.fetch_run_summary(run_id, token.org_id)
@@ -62,9 +74,10 @@ async def get_run(
 @router.get("/v1/runs/{run_id}/trace")
 async def get_trace(
     request: Request,
-    run_id: str,
+    run_id: str = Path(...),
     authorization: Optional[str] = Header(default=None),
 ):
+    run_id = _run_id(run_id)
     token = _auth(request, authorization)
     store = request.app.state.store
     events = await store.fetch_run_events(run_id, token.org_id)
@@ -76,9 +89,10 @@ async def get_trace(
 @router.get("/v1/runs/{run_id}/events")
 async def get_events(
     request: Request,
-    run_id: str,
+    run_id: str = Path(...),
     authorization: Optional[str] = Header(default=None),
 ):
+    run_id = _run_id(run_id)
     token = _auth(request, authorization)
     store = request.app.state.store
     events = await store.fetch_run_events(run_id, token.org_id)
@@ -88,9 +102,10 @@ async def get_events(
 @router.get("/v1/runs/{run_id}/checkpoints")
 async def get_checkpoints(
     request: Request,
-    run_id: str,
+    run_id: str = Path(...),
     authorization: Optional[str] = Header(default=None),
 ):
+    run_id = _run_id(run_id)
     token = _auth(request, authorization)
     store = request.app.state.store
     cps = await store.fetch_checkpoints(run_id, token.org_id)
@@ -100,10 +115,11 @@ async def get_checkpoints(
 @router.get("/v1/runs/{run_id}/similar")
 async def get_similar_runs(
     request: Request,
-    run_id: str,
+    run_id: str = Path(...),
     limit: int = Query(default=10, le=50),
     authorization: Optional[str] = Header(default=None),
 ):
+    run_id = _run_id(run_id)
     token = _auth(request, authorization)
     store = request.app.state.store
     similar = await store.similar_runs(run_id, token.org_id, limit=limit)

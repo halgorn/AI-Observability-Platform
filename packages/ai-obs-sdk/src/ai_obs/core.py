@@ -161,10 +161,14 @@ class Tracer:
     def _send_batch(self, batch: list[dict]) -> None:
         endpoint = self.config.endpoint or os.environ.get("AI_OBS_INGEST_URL", "http://localhost:8000")
         url = f"{endpoint.rstrip('/')}/v1/events"
+        headers = {}
+        token = os.environ.get("AI_OBS_SERVICE_TOKEN", "")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         try:
             import httpx
             with httpx.Client(timeout=5.0) as c:
-                c.post(url, json=batch)
+                c.post(url, json=batch, headers=headers)
         except Exception as e:
             logger.warning("failed to emit %d events: %s", len(batch), e)
 

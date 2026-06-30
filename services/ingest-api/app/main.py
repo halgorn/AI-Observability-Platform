@@ -50,11 +50,10 @@ def create_app(
     if enable_sentry:
         init_sentry()
 
-    use_postgres = bool(os.environ.get("POSTGRES_DSN")) and bool(postgres_dsn is not False)
-    if use_postgres and postgres_dsn:
+    postgres_dsn = postgres_dsn if postgres_dsn is not None else os.environ.get("POSTGRES_DSN")
+    if postgres_dsn:
         from .persistence.postgres.store import PostgresStore
-        ps = PostgresStore(postgres_dsn)
-        store = ps
+        store = PostgresStore(postgres_dsn)
     else:
         store = store or InMemoryStore()
 
@@ -125,6 +124,18 @@ def create_app(
         report = await run_checks(checks)
         status_code = 200 if report["status"] == "ok" else 503
         return JSONResponse(report, status_code=status_code)
+
+    @app.on_event("startup")
+    async def _connect_store():
+        connect = getattr(ctx.store, "connect", None)
+        if connect:
+            await connect()
+
+    @app.on_event("shutdown")
+    async def _close_store():
+        close = getattr(ctx.store, "close", None)
+        if close:
+            await close()
 
     init_tracing(app)
     init_metrics(app)
