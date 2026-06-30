@@ -20,6 +20,7 @@ node_modules/
 .next/
 .turbo/
 .pnpm-store/
+*.tsbuildinfo
 
 # Env
 .env
@@ -29,6 +30,7 @@ node_modules/
 # IDE
 .vscode/
 .idea/
+.serena/
 *.swp
 .DS_Store
 
