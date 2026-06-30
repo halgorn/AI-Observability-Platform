@@ -89,6 +89,19 @@ export interface HandoffEdge {
   success_rate: number;
 }
 
+export interface DiffResult {
+  run_a: string;
+  run_b: string;
+  dimension: string | null;
+  diff: {
+    cost_usd:     { a: number; b: number; delta: number };
+    tokens_in:    { a: number; b: number; delta: number };
+    duration_ms:  { a: number; b: number; delta: number };
+    error_count:  { a: number; b: number };
+    events_count: { a: number; b: number };
+  };
+}
+
 export const api = {
   analytics: {
     byTool: (since = "7d") =>
@@ -109,6 +122,11 @@ export const api = {
       return request<{ items: RunSummary[]; count: number; next_cursor: string | null }>(url);
     },
     get: (runId: string) => request<RunSummary>(`${QUERY_URL}/v1/runs/${runId}`),
+    compare: (runA: string, runB: string) =>
+      request<DiffResult>(`${QUERY_URL}/v1/compare`, {
+        method: "POST",
+        body: JSON.stringify({ run_a: runA, run_b: runB }),
+      }),
     trace: (runId: string) => request<Trace>(`${QUERY_URL}/v1/runs/${runId}/trace`),
     events: (runId: string) => request<{ items: any[]; count: number }>(`${QUERY_URL}/v1/runs/${runId}/events`),
     checkpoints: (runId: string) => request<{ items: any[]; count: number }>(`${QUERY_URL}/v1/runs/${runId}/checkpoints`),

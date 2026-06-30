@@ -15,6 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <a href="/runs" className="text-sm text-zinc-400 hover:text-zinc-100">Runs</a>
           <a href="/agents" className="text-sm text-zinc-400 hover:text-zinc-100">Agents</a>
           <a href="/tools" className="text-sm text-zinc-400 hover:text-zinc-100">Tools</a>
+          <a href="/diff" className="text-sm text-zinc-400 hover:text-zinc-100">Diff</a>
         </nav>
         <main className="min-h-[calc(100vh-3rem)]">{children}</main>
       </body>
