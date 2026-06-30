@@ -1,9 +1,9 @@
 version: "3.9"
 
-# Local dev stack: ingest-api + query-api + Postgres + Grafana + Prometheus + ngrok
+# Local dev stack: ingest-api + query-api + Postgres + Grafana + Prometheus
+# Public ingress: handled by nginx in front of ingest-api (see infra/nginx/).
 # Usage:
-#   NGROK_AUTHTOKEN=<token> docker compose up
-#   INGEST_API_SECRET=mysecret NGROK_AUTHTOKEN=<token> docker compose up
+#   INGEST_API_SECRET=mysecret docker compose up -d
 
 services:
   postgres:
@@ -101,18 +101,6 @@ services:
       - "3002:3000"
     depends_on:
       - prometheus
-    restart: unless-stopped
-
-  ngrok:
-    image: ngrok/ngrok:latest
-    command: http ingest-api:8000 --log stdout
-    environment:
-      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
-    ports:
-      - "4041:4040"
-    depends_on:
-      ingest-api:
-        condition: service_healthy
     restart: unless-stopped
 
 volumes:

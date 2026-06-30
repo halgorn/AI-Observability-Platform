@@ -1,0 +1,97 @@
+# nginx config — front the AI Observability Platform with your own domain + TLS.
+#
+# Assumptions:
+#   - You have a domain (e.g. obs.example.com) with DNS A/CNAME pointing to this server.
+#   - TLS certs are obtained via certbot (or your CA) — paths below assume
+#     /etc/letsencrypt/live/obs.example.com/{fullchain,privkey}.pem
+#
+# What this does:
+#   - obs.example.com → /v1/events  (and any /v1/*) → ingest-api:8000
+#   - obs.example.com/             → static dashboard (optional, served from /var/www/aiobs-web)
+#
+# Replace `obs.example.com` with your real domain.
+# Copy to /etc/nginx/sites-available/aiobs.conf and `ln -s` to sites-enabled.
+
+# Rate limit shared zone — protects /v1/events from being flooded
+limit_req_zone $binary_remote_addr zone=aiobs_ingest:10m rate=100r/s;
+
+upstream aiobs_ingest_api {
+    server 127.0.0.1:8000;       # ingest-api, per docker-compose.yml
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    server_name obs.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name obs.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/obs.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/obs.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    # Liveness / readiness (cheap, no auth)
+    location = /healthz {
+        proxy_pass http://aiobs_ingest_api/v1/healthz;
+        access_log off;
+    }
+
+    # ── Ingest ─────────────────────────────────────────────────────────
+    # POST /v1/events — primary write path (SDK → ingest-api)
+    # Required header: Authorization: Bearer <token>
+    location /v1/events {
+        limit_req zone=aiobs_ingest burst=200 nodelay;
+        proxy_pass http://aiobs_ingest_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+        client_max_body_size 10m;       # batches can be sizeable
+    }
+
+    # POST /v1/traces — auxiliary write path
+    location /v1/traces {
+        limit_req zone=aiobs_ingest burst=100 nodelay;
+        proxy_pass http://aiobs_ingest_api;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 10m;
+    }
+
+    # Block /v1/read on the public domain — those are query-api endpoints
+    # behind auth and shouldn't be exposed (except a guarded /metrics scrape).
+    location ~ ^/v1/(?!events|traces|healthz) {
+        return 404;
+    }
+
+    # ── Optional: dashboard ───────────────────────────────────────────
+    # Serve the built Next.js static export from /var/www/aiobs-web.
+    # Run in apps/web: `npm run build && npx next export -o /var/www/aiobs-web`
+    # (not strictly needed if the dashboard is private/internal only.)
+    location / {
+        root /var/www/aiobs-web;
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
+    }
+
+    # nginx status (only if you enable stub_status)
+    # location /nginx_status { stub_status; access_log off; allow 127.0.0.1; deny all; }
+}
