@@ -40,13 +40,17 @@ def build_trace(events: list[dict]) -> dict:
 
     error_message: str | None = None
     error_type: str | None = None
+    error_span_id: str | None = None
     for e in events:
         if e.get("error_code") or e.get("type") == "error":
             attrs = e.get("attributes") or {}
             payload = e.get("payload") or {}
             error_message = attrs.get("error.message") or payload.get("message") or e.get("error_code")
             error_type = attrs.get("error.type") or payload.get("code") or e.get("error_code")
+            error_span_id = e.get("span_id")
             break
+
+    meta = _extract_run_meta(events)
 
     return {
         "roots": roots,
@@ -56,8 +60,94 @@ def build_trace(events: list[dict]) -> dict:
             "total_duration_ms": total_duration,
             "error_message": error_message,
             "error_type": error_type,
+            "error_span_id": error_span_id,
+            **meta,
         },
     }
+
+
+def _extract_run_meta(events: list[dict]) -> dict:
+    """Pull run-level metadata from run.start / run.end events.
+
+    Also derives coverage flags (has_llm_calls, has_tool_invocations,
+    has_messages, has_checkpoints) so the UI can explain a sparse trace.
+    """
+    meta: dict[str, Any] = {
+        "input_hash": None,
+        "input_size": None,
+        "output_hash": None,
+        "output_size": None,
+        "prompt_version": None,
+        "thread_id": None,
+        "parent_run_id": None,
+        "tags": [],
+        "artifact_refs": [],
+        "has_llm_calls": False,
+        "has_tool_invocations": False,
+        "has_messages": False,
+        "has_checkpoints": False,
+    }
+    artifact_refs: set[str] = set()
+    tags: set[str] = set()
+
+    for ev in events:
+        et = ev.get("type")
+        attrs = ev.get("attributes") or {}
+        payload = ev.get("payload") or {}
+
+        if et == "run.start":
+            meta["input_hash"] = payload.get("input_hash") or attrs.get("input_hash") or meta["input_hash"]
+            meta["input_size"] = payload.get("input_size") or attrs.get("input_size") or meta["input_size"]
+            meta["prompt_version"] = (
+                payload.get("prompt_version") or attrs.get("prompt_version") or meta["prompt_version"]
+            )
+            meta["thread_id"] = payload.get("thread_id") or attrs.get("thread_id") or meta["thread_id"]
+            meta["parent_run_id"] = (
+                payload.get("parent_run_id") or attrs.get("parent_run_id") or meta["parent_run_id"]
+            )
+            for t in payload.get("tags") or attrs.get("tags") or []:
+                if isinstance(t, str):
+                    tags.add(t)
+            ref = attrs.get("artifact_ref") or payload.get("artifact_ref")
+            if isinstance(ref, str):
+                artifact_refs.add(ref)
+
+        elif et == "run.end":
+            meta["output_hash"] = payload.get("output_hash") or attrs.get("output_hash") or meta["output_hash"]
+            meta["output_size"] = payload.get("output_size") or attrs.get("output_size") or meta["output_size"]
+            for t in payload.get("tags") or attrs.get("tags") or []:
+                if isinstance(t, str):
+                    tags.add(t)
+
+        elif et == "llm.call":
+            meta["has_llm_calls"] = True
+            ref = attrs.get("artifact_ref") or payload.get("artifact_ref")
+            if isinstance(ref, str):
+                artifact_refs.add(ref)
+            if payload.get("messages_hash") or attrs.get("artifact_ref"):
+                meta["has_messages"] = True
+
+        elif et == "tool.invoke":
+            meta["has_tool_invocations"] = True
+            ref = attrs.get("artifact_ref") or payload.get("artifact_ref")
+            if isinstance(ref, str):
+                artifact_refs.add(ref)
+
+        elif et == "checkpoint":
+            meta["has_checkpoints"] = True
+
+        elif et == "artifact.link":
+            ref = attrs.get("artifact_ref") or payload.get("artifact_ref")
+            if isinstance(ref, str):
+                artifact_refs.add(ref)
+
+        for t in attrs.get("tags") or []:
+            if isinstance(t, str):
+                tags.add(t)
+
+    meta["tags"] = sorted(tags)
+    meta["artifact_refs"] = sorted(artifact_refs)
+    return meta
 
 
 def _span_name(event: dict) -> str:

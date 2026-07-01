@@ -72,6 +72,22 @@ export interface TraceNode {
   event: TraceEvent;
 }
 
+export interface RunMetadata {
+  input_hash: string | null;
+  input_size: number | null;
+  output_hash: string | null;
+  output_size: number | null;
+  prompt_version: string | null;
+  thread_id: string | null;
+  parent_run_id: string | null;
+  tags: string[];
+  artifact_refs: string[];
+  has_llm_calls: boolean;
+  has_tool_invocations: boolean;
+  has_messages: boolean;
+  has_checkpoints: boolean;
+}
+
 export interface Trace {
   roots: TraceNode[];
   summary: {
@@ -80,7 +96,26 @@ export interface Trace {
     total_duration_ms: number;
     error_message?: string | null;
     error_type?: string | null;
-  };
+    error_span_id?: string | null;
+  } & RunMetadata;
+}
+
+export interface Checkpoint {
+  span_id?: string;
+  step: number;
+  state_hash: string;
+  state_size?: number | null;
+  thread_id?: string | null;
+  saved_at?: string | null;
+  created_at?: string | null;
+  run_id?: string;
+}
+
+export interface ArtifactRef {
+  ref: string;
+  source_event: string;
+  source_type: string;
+  context: string;
 }
 
 export interface ReplaySessionOut {
@@ -92,6 +127,16 @@ export interface ReplaySessionOut {
   mock_tools: string[];
   diverged_at: number | null;
   status: string;
+  last_state_hash?: string | null;
+  state?: Record<string, unknown> | null;
+}
+
+export interface ReplayStepResult {
+  step: number;
+  state_hash: string;
+  diverged: boolean;
+  state?: Record<string, unknown> | null;
+  diff?: { field: string; expected: unknown; actual: unknown }[] | null;
 }
 
 export interface ToolRow {
@@ -158,18 +203,19 @@ export const api = {
         body: JSON.stringify({ run_a: runA, run_b: runB }),
       }),
     trace: (runId: string) => request<Trace>(`${QUERY_URL}/v1/runs/${runId}/trace`),
-    events: (runId: string) => request<{ items: any[]; count: number }>(`${QUERY_URL}/v1/runs/${runId}/events`),
-    checkpoints: (runId: string) => request<{ items: any[]; count: number }>(`${QUERY_URL}/v1/runs/${runId}/checkpoints`),
+    events: (runId: string) => request<{ items: TraceEvent[]; count: number }>(`${QUERY_URL}/v1/runs/${runId}/events`),
+    checkpoints: (runId: string) => request<{ items: Checkpoint[]; count: number }>(`${QUERY_URL}/v1/runs/${runId}/checkpoints`),
+    artifact: (ref: string) => request<unknown>(`${QUERY_URL}/v1/artifacts/${encodeURIComponent(ref)}`).catch(() => null),
   },
   replay: {
     start: (runId: string) => request<ReplaySessionOut>(`${REPLAY_URL}/v1/runs/${runId}/replay`, { method: "POST" }),
     step: (sessionId: string, n = 1) =>
-      request<{ step: number; state_hash: string; diverged: boolean }>(
+      request<ReplayStepResult>(
         `${REPLAY_URL}/v1/replay/${sessionId}/step?n=${n}`,
         { method: "POST" },
       ),
     reset: (sessionId: string, toStep = 0) =>
-      request<{ step: number; state_hash: string }>(
+      request<ReplayStepResult>(
         `${REPLAY_URL}/v1/replay/${sessionId}/reset?to_step=${toStep}`,
         { method: "POST" },
       ),
@@ -183,3 +229,42 @@ export const api = {
     status: (sessionId: string) => request<ReplaySessionOut>(`${REPLAY_URL}/v1/replay/${sessionId}/status`),
   },
 };
+
+export function collectArtifactRefs(events: TraceEvent[]): ArtifactRef[] {
+  const seen = new Map<string, ArtifactRef>();
+  for (const ev of events) {
+    const attrs = ev.attributes ?? {};
+    const payload = (ev.payload ?? {}) as Record<string, unknown>;
+    const ref = (attrs.artifact_ref ?? payload.artifact_ref) as string | undefined;
+    if (typeof ref !== "string" || seen.has(ref)) continue;
+    let context = "";
+    if (ev.type === "llm.call") context = "LLM messages";
+    else if (ev.type === "tool.invoke") context = `tool:${ev.tool ?? "?"}`;
+    else if (ev.type === "artifact.link") context = "artifact link";
+    else context = ev.type;
+    seen.set(ref, {
+      ref,
+      source_event: ev.span_id,
+      source_type: ev.type,
+      context,
+    });
+  }
+  return Array.from(seen.values());
+}
+
+export function findCausalPath(roots: TraceNode[], targetId: string): TraceNode[] {
+  const path: TraceNode[] = [];
+  function walk(nodes: TraceNode[], trail: TraceNode[]): boolean {
+    for (const n of nodes) {
+      const next = [...trail, n];
+      if (n.span_id === targetId) {
+        path.push(...next);
+        return true;
+      }
+      if (walk(n.children, next)) return true;
+    }
+    return false;
+  }
+  walk(roots, []);
+  return path;
+}
