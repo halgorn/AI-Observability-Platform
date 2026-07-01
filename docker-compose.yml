@@ -50,6 +50,9 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - default
+      - ai-obs-shared
 
   query-api:
     build:
@@ -107,3 +110,8 @@ volumes:
   postgres_data:
   prometheus_data:
   grafana_data:
+
+networks:
+  default:
+  ai-obs-shared:
+    external: true
