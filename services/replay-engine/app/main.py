@@ -4,7 +4,10 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
+from typing import Any
 
+import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -14,6 +17,32 @@ from .schemas import MockToggleIn, ReplaySessionOut, ReplayStepOut
 from .store.memory import InMemorySessionStore
 
 logger = logging.getLogger(__name__)
+
+
+class QueryClient:
+    """Thin HTTP client to fetch run events from the query-api."""
+
+    def __init__(self, base_url: str, secret: str) -> None:
+        self._base = base_url.rstrip("/")
+        self._secret = secret
+
+    async def fetch_run_events(self, run_id: str, org_id: str) -> list[dict]:
+        headers = {
+            "Authorization": f"Bearer {self._secret}",
+            "X-Org-Id": org_id,
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{self._base}/v1/runs/{run_id}/trace", headers=headers)
+            if r.status_code == 404:
+                return []
+            r.raise_for_status()
+            data = r.json()
+            events: list[dict] = []
+            roots = data.get("roots") or []
+            for span in roots:
+                events.append(span)
+                events.extend(span.get("children") or [])
+            return events
 
 
 def _auth(request: Request, authorization: str | None) -> str:
@@ -30,14 +59,30 @@ def _auth(request: Request, authorization: str | None) -> str:
         raise HTTPException(status_code=403, detail={"code": "AUTH_FORBIDDEN", "message": str(e)})
 
 
+_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3003",
+    os.environ.get("CORS_ORIGIN", ""),
+]
+_ALLOWED_ORIGINS = [o for o in _ALLOWED_ORIGINS if o]
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    query_url = os.environ.get("QUERY_API_URL", "")
+    secret = os.environ.get("INGEST_API_SECRET", "")
+    if query_url and secret:
+        app.state.query_client = QueryClient(query_url, secret)
+        logger.info("query_client wired to %s", query_url)
+    yield
+
+
 def create_app(*, token_store: TokenStore | None = None) -> FastAPI:
-    app = FastAPI(title="replay-engine", version="0.1.0")
+    app = FastAPI(title="replay-engine", version="0.1.0", lifespan=_lifespan)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ],
+        allow_origins=_ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -48,7 +93,7 @@ def create_app(*, token_store: TokenStore | None = None) -> FastAPI:
         from fastapi.responses import JSONResponse
         origin = request.headers.get("origin")
         headers = {}
-        if origin in ("http://localhost:3000", "http://127.0.0.1:3000"):
+        if origin in _ALLOWED_ORIGINS:
             headers["Access-Control-Allow-Origin"] = origin
             headers["Access-Control-Allow-Credentials"] = "true"
             headers["Vary"] = "Origin"
@@ -83,8 +128,14 @@ def create_app(*, token_store: TokenStore | None = None) -> FastAPI:
                 events = await request.app.state.query_client.fetch_run_events(run_id, org_id)
             except Exception as e:
                 logger.warning("query fetch failed: %s", e)
-        session = app.state.engine.load(run_id, events, [])
-        session.steps[0].state["org_id"] = org_id
+        if not events:
+            raise HTTPException(status_code=404, detail={"code": "RUN_NOT_FOUND", "message": f"No events found for run {run_id}"})
+        try:
+            session = app.state.engine.load(run_id, events, [])
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail={"code": "RUN_NOT_FOUND", "message": str(e)})
+        if session.steps:
+            session.steps[0].state["org_id"] = org_id
         app.state.session_store.save(session)
         return _to_out(session)
 

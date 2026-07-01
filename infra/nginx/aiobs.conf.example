@@ -20,6 +20,21 @@ upstream aiobs_ingest_api {
     keepalive 16;
 }
 
+upstream aiobs_query_api {
+    server 127.0.0.1:8011;       # query-api, per docker-compose.yml
+    keepalive 8;
+}
+
+upstream aiobs_replay_engine {
+    server 127.0.0.1:8012;       # replay-engine, per docker-compose.yml
+    keepalive 8;
+}
+
+upstream aiobs_web {
+    server 127.0.0.1:3003;       # web dashboard, per docker-compose.yml
+    keepalive 8;
+}
+
 server {
     listen 80;
     server_name obs.example.com;
@@ -76,20 +91,45 @@ server {
         client_max_body_size 10m;
     }
 
-    # Block /v1/read on the public domain — those are query-api endpoints
-    # behind auth and shouldn't be exposed (except a guarded /metrics scrape).
+    # Block /v1/* on public domain except ingest paths
     location ~ ^/v1/(?!events|traces|healthz) {
         return 404;
     }
 
-    # ── Optional: dashboard ───────────────────────────────────────────
-    # Serve the built Next.js static export from /var/www/aiobs-web.
-    # Run in apps/web: `npm run build && npx next export -o /var/www/aiobs-web`
-    # (not strictly needed if the dashboard is private/internal only.)
-    location / {
-        root /var/www/aiobs-web;
-        try_files $uri $uri/ /index.html;
-        add_header Cache-Control "no-cache";
+    # ── Query API (read) ──────────────────────────────────────────────
+    # Exposed at /query/ — used by the web dashboard internally
+    location /query/ {
+        proxy_pass http://aiobs_query_api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+
+    # ── Replay engine ─────────────────────────────────────────────────
+    location /replay/ {
+        proxy_pass http://aiobs_replay_engine/;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # ── Web dashboard ─────────────────────────────────────────────────
+    # Next.js app with basePath=/observer, served from port 3003
+    location /observer {
+        proxy_pass http://aiobs_web;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        "upgrade";
     }
 
     # nginx status (only if you enable stub_status)
