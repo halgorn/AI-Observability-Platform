@@ -115,6 +115,11 @@ def run(*, agent: str, input: Any, org_id: str | None = None) -> Iterator["RunCo
         status = "failed"
         exc = e
     finally:
+        from .context import drain_pending_llm, _run_id_var
+        in_t, out_t, cost = drain_pending_llm()
+        if in_t or out_t or cost:
+            rc._total_tokens += in_t + out_t
+            rc._total_cost_usd += cost
         end_attrs = {
             "event_type": "run.end",
             "genai.agent.name": agent or "unknown",
@@ -129,6 +134,7 @@ def run(*, agent: str, input: Any, org_id: str | None = None) -> Iterator["RunCo
         ctx_end = tracer.start_span(f"run.{agent}.end", kind="agent", attributes=end_attrs)
         tracer.end_span(ctx_end, result=None, error=exc)
         tracer.flush()
+        _run_id_var.set(None)
 
     if exc is not None:
         raise exc

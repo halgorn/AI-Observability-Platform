@@ -15,12 +15,41 @@ _run_id_var: ContextVar[str | None] = ContextVar("ai_obs_run_id", default=None)
 _span_id_var: ContextVar[str | None] = ContextVar("ai_obs_span_id", default=None)
 _parent_span_id_var: ContextVar[str | None] = ContextVar("ai_obs_parent_span_id", default=None)
 _org_id_var: ContextVar[str | None] = ContextVar("ai_obs_org_id", default=None)
+_pending_tokens_in_var: ContextVar[int] = ContextVar("ai_obs_pending_tokens_in", default=0)
+_pending_tokens_out_var: ContextVar[int] = ContextVar("ai_obs_pending_tokens_out", default=0)
+_pending_cost_var: ContextVar[float] = ContextVar("ai_obs_pending_cost_usd", default=0.0)
 
 
 def set_run_context(run_id: str, org_id: str | None = None) -> None:
     _run_id_var.set(run_id)
     if org_id:
         _org_id_var.set(org_id)
+
+
+def add_pending_llm(*, tokens_in: int = 0, tokens_out: int = 0, cost_usd: float = 0.0) -> None:
+    """Acumula tokens/custo de chamadas LLM feitas de fora do RunContext.
+
+    Usado quando uma chamada LLM é feita em código que não tem acesso direto
+    ao RunContext (ex.: run_adk_agent dentro de uma task Celery). Os valores
+    são somados a contextvars e mesclados no RunContext quando run() termina.
+    """
+    if tokens_in:
+        _pending_tokens_in_var.set(_pending_tokens_in_var.get() + int(tokens_in))
+    if tokens_out:
+        _pending_tokens_out_var.set(_pending_tokens_out_var.get() + int(tokens_out))
+    if cost_usd:
+        _pending_cost_var.set(_pending_cost_var.get() + float(cost_usd))
+
+
+def drain_pending_llm() -> tuple[int, int, float]:
+    """Consome e zera os contextvars pendentes. Retorna (in, out, usd)."""
+    in_t = _pending_tokens_in_var.get()
+    out_t = _pending_tokens_out_var.get()
+    cost = _pending_cost_var.get()
+    _pending_tokens_in_var.set(0)
+    _pending_tokens_out_var.set(0)
+    _pending_cost_var.set(0.0)
+    return in_t, out_t, cost
 
 
 def current_run_id() -> str | None:
