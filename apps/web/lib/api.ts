@@ -1,5 +1,9 @@
+// QUERY_URL: kept as NEXT_PUBLIC_QUERY_URL for backward-compat with existing builds.
+// REPLAY_URL: uses Next.js server-side rewrite (/api/replay/* → replay-engine) to avoid CORS.
+//   Requires next.config.js rewrite + REPLAY_ENGINE_URL env var on the Next.js server.
+//   Falls back to NEXT_PUBLIC_REPLAY_URL for older deployments or local dev.
 const QUERY_URL = process.env.NEXT_PUBLIC_QUERY_URL || "http://localhost:8001";
-const REPLAY_URL = process.env.NEXT_PUBLIC_REPLAY_URL || "http://localhost:8002";
+const REPLAY_URL = process.env.NEXT_PUBLIC_REPLAY_URL || "/api/replay";
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public request_id?: string) {
