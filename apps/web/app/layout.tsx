@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,11 +12,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark">
       <body className="bg-zinc-950 text-zinc-100 antialiased">
         <nav className="border-b border-zinc-800 px-6 py-3 flex items-center gap-6">
-          <a href="/" className="font-semibold text-zinc-100">ai-obs</a>
-          <a href="/runs" className="text-sm text-zinc-400 hover:text-zinc-100">Runs</a>
-          <a href="/agents" className="text-sm text-zinc-400 hover:text-zinc-100">Agents</a>
-          <a href="/tools" className="text-sm text-zinc-400 hover:text-zinc-100">Tools</a>
-          <a href="/diff" className="text-sm text-zinc-400 hover:text-zinc-100">Diff</a>
+          <Link href="/" className="font-semibold text-zinc-100">ai-obs</Link>
+          <Link href="/runs" className="text-sm text-zinc-400 hover:text-zinc-100">Runs</Link>
+          <Link href="/agents" className="text-sm text-zinc-400 hover:text-zinc-100">Agents</Link>
+          <Link href="/tools" className="text-sm text-zinc-400 hover:text-zinc-100">Tools</Link>
+          <Link href="/diff" className="text-sm text-zinc-400 hover:text-zinc-100">Diff</Link>
         </nav>
         <main className="min-h-[calc(100vh-3rem)]">{children}</main>
       </body>

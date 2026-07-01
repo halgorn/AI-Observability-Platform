@@ -37,12 +37,25 @@ def build_trace(events: list[dict]) -> dict:
         roots = list(by_id.values())[:1]
     total_cost = sum((e.get("cost_usd") or 0) for e in events)
     total_duration = max((e.get("duration_ms") or 0) for e in events) if events else 0
+
+    error_message: str | None = None
+    error_type: str | None = None
+    for e in events:
+        if e.get("error_code") or e.get("type") == "error":
+            attrs = e.get("attributes") or {}
+            payload = e.get("payload") or {}
+            error_message = attrs.get("error.message") or payload.get("message") or e.get("error_code")
+            error_type = attrs.get("error.type") or payload.get("code") or e.get("error_code")
+            break
+
     return {
         "roots": roots,
         "summary": {
             "total_events": len(events),
             "total_cost_usd": total_cost,
             "total_duration_ms": total_duration,
+            "error_message": error_message,
+            "error_type": error_type,
         },
     }
 
