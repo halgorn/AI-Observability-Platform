@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api, ApiError, RunSummary } from "@/lib/api";
 
 type Status = "loading" | "error" | "ready";
@@ -12,9 +13,7 @@ export function RunsList() {
   const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setStatus("loading");
-    setError(null);
+  const fetchRuns = () => {
     api.runs
       .list({ agent: agentFilter || undefined, status: statusFilter || undefined, limit: 50 })
       .then((d) => {
@@ -25,7 +24,20 @@ export function RunsList() {
         setError(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e));
         setStatus("error");
       });
+  };
+
+  useEffect(() => {
+    setStatus("loading");
+    setError(null);
+    fetchRuns();
   }, [agentFilter, statusFilter]);
+
+  useEffect(() => {
+    const hasRunning = items.some((r) => r.status === "running");
+    if (!hasRunning) return;
+    const id = setInterval(fetchRuns, 30_000);
+    return () => clearInterval(id);
+  }, [items, agentFilter, statusFilter]);
 
   if (status === "loading") return <div className="p-8 text-zinc-500">Loading runs…</div>;
   if (status === "error")
@@ -61,7 +73,15 @@ export function RunsList() {
           <option value="timeout">timeout</option>
           <option value="cancelled">cancelled</option>
         </select>
-        <span className="text-sm text-zinc-500 ml-auto">{items.length} runs</span>
+        <span className="text-sm text-zinc-500 ml-auto flex items-center gap-2">
+          {items.some((r) => r.status === "running") && (
+            <span className="flex items-center gap-1 text-xs text-blue-400">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+              auto-refresh
+            </span>
+          )}
+          {items.length} runs
+        </span>
       </div>
       {items.length === 0 ? (
         <div className="text-zinc-500 text-sm">No runs match the filter.</div>
@@ -83,7 +103,7 @@ export function RunsList() {
               {items.map((r) => (
                 <tr key={r.run_id} className="border-t border-zinc-800 hover:bg-zinc-900/50">
                   <td className="px-4 py-2 font-mono text-xs text-violet-300">
-                    <a href={`/runs/${r.run_id}`}>{r.run_id.slice(0, 8)}…</a>
+                    <Link href={`/runs/${r.run_id}`}>{r.run_id.slice(0, 8)}…</Link>
                   </td>
                   <td className="px-4 py-2">{r.agent}</td>
                   <td className="px-4 py-2">

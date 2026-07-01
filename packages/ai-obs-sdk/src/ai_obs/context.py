@@ -4,6 +4,7 @@ Imports Tracer and SpanContext from core to break circular dependency.
 """
 from __future__ import annotations
 
+import datetime
 import time
 from contextvars import ContextVar
 from typing import Any
@@ -51,8 +52,8 @@ def build_event_dict(ctx: Any, *, result: Any, error: Exception | None, tracer: 
         "span_id": ctx.span_id,
         "parent_span_id": ctx.parent_span_id,
         "type": event_type,
-        "started_at": ctx.started_at,
-        "ended_at": ctx.ended_at,
+        "started_at": _to_iso(ctx.started_at),
+        "ended_at": _to_iso(ctx.ended_at),
         "duration_ms": ctx.duration_ms,
         "payload": payload,
         "attributes": _redact(ctx.attributes, tracer.config.pii_mode, tracer.config.redact_keys),
@@ -69,6 +70,12 @@ def build_event_dict(ctx: Any, *, result: Any, error: Exception | None, tracer: 
     if "genai.llm.cost.usd" in ctx.attributes:
         event["cost_usd"] = ctx.attributes["genai.llm.cost.usd"]
     return event
+
+
+def _to_iso(ts: float | None) -> str | None:
+    if ts is None:
+        return None
+    return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).isoformat()
 
 
 def _build_payload(*, event_type: str, ctx: Any, result: Any, error: Exception | None) -> dict:
@@ -98,11 +105,16 @@ def _build_payload(*, event_type: str, ctx: Any, result: Any, error: Exception |
             "message": ctx.attributes.get("error.message", "unknown")[:500],
             "retryable": ctx.attributes.get("retryable", False),
         }
+    if event_type == "step.start":
+        return {
+            "step": ctx.attributes.get("step", 0),
+            "agent": ctx.attributes.get("genai.agent.name") or None,
+        }
     if event_type == "run.start":
         return {
             "input_hash": ctx.attributes.get("input_hash", "sha256:" + "0" * 64),
             "input_size": ctx.attributes.get("input_size", 0),
-            "agent": ctx.attributes.get("genai.agent.name", ""),
+            "agent": ctx.attributes.get("genai.agent.name") or "unknown",
             "thread_id": ctx.attributes.get("thread_id"),
             "prompt_version": ctx.attributes.get("prompt_version"),
         }

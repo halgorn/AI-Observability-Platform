@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import uuid
+import hashlib
+import json
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Callable, Iterator
 
 from .context import set_run_context
-from .core import SpanContext
 from .tracer import get_tracer
 
 
@@ -41,6 +41,22 @@ def observe(*, agent: str | None = None, tool: str | None = None, llm: str | Non
 
 
 def _run_sync(fn, args, kwargs, kind, target, event_type, attr_key, span_name):
+    from .context import current_run_id
+    if kind == "agent" and current_run_id() is None:
+        with run(agent=target, input=""):
+            return _emit_sync(fn, args, kwargs, attr_key, target, event_type, span_name, kind)
+    return _emit_sync(fn, args, kwargs, attr_key, target, event_type, span_name, kind)
+
+
+async def _run_async(fn, args, kwargs, kind, target, event_type, attr_key, span_name):
+    from .context import current_run_id
+    if kind == "agent" and current_run_id() is None:
+        with run(agent=target, input=""):
+            return await _emit_async(fn, args, kwargs, attr_key, target, event_type, span_name, kind)
+    return await _emit_async(fn, args, kwargs, attr_key, target, event_type, span_name, kind)
+
+
+def _emit_sync(fn, args, kwargs, attr_key, target, event_type, span_name, kind):
     tracer = get_tracer()
     attrs = {attr_key: target, "event_type": event_type}
     ctx = tracer.start_span(span_name, kind=kind, attributes=attrs)
@@ -53,7 +69,7 @@ def _run_sync(fn, args, kwargs, kind, target, event_type, attr_key, span_name):
     return result
 
 
-async def _run_async(fn, args, kwargs, kind, target, event_type, attr_key, span_name):
+async def _emit_async(fn, args, kwargs, attr_key, target, event_type, span_name, kind):
     tracer = get_tracer()
     attrs = {attr_key: target, "event_type": event_type}
     ctx = tracer.start_span(span_name, kind=kind, attributes=attrs)
@@ -76,18 +92,46 @@ def run(*, agent: str, input: Any, org_id: str | None = None) -> Iterator["RunCo
     run_id = str(uuid7())
     set_run_context(run_id, org_id=org_id)
     tracer = get_tracer()
-    attrs = {"event_type": "run.start", "genai.agent.name": agent, "input": _truncate(input)}
-    ctx = tracer.start_span(f"agent.{agent}", kind="agent", attributes=attrs)
-    rc = RunContext(agent=agent, run_id=run_id, span=ctx)
-    rc._emit_start()
+
+    raw = str(input).encode()
+    input_hash = "sha256:" + hashlib.sha256(raw).hexdigest()
+
+    start_attrs = {
+        "event_type": "run.start",
+        "genai.agent.name": agent or "unknown",
+        "input_hash": input_hash,
+        "input_size": len(raw),
+    }
+    ctx_start = tracer.start_span(f"run.{agent}", kind="agent", attributes=start_attrs)
+    tracer.end_span(ctx_start, result=None, error=None)
+    tracer.flush()
+
+    rc = RunContext(agent=agent, run_id=run_id)
+    status = "succeeded"
+    exc: Exception | None = None
     try:
         yield rc
     except Exception as e:
-        rc._emit_end(status="failed", error=e)
-        tracer.end_span(ctx, result=None, error=e)
-        raise
-    rc._emit_end(status="succeeded", error=None)
-    tracer.end_span(ctx, result=None, error=None)
+        status = "failed"
+        exc = e
+    finally:
+        end_attrs = {
+            "event_type": "run.end",
+            "genai.agent.name": agent or "unknown",
+            "status": status,
+            "total_steps": rc._step_count,
+            "total_tokens": rc._total_tokens,
+            "total_cost_usd": rc._total_cost_usd,
+        }
+        if exc is not None:
+            end_attrs["error.type"] = type(exc).__name__
+            end_attrs["error.message"] = str(exc)[:200]
+        ctx_end = tracer.start_span(f"run.{agent}.end", kind="agent", attributes=end_attrs)
+        tracer.end_span(ctx_end, result=None, error=exc)
+        tracer.flush()
+
+    if exc is not None:
+        raise exc
 
 
 def handoff(*, to: str, payload: Any, reason: str = "delegation") -> None:
@@ -113,10 +157,12 @@ def _current_agent() -> str:
 
 
 class RunContext:
-    def __init__(self, *, agent: str, run_id: str, span: SpanContext) -> None:
+    def __init__(self, *, agent: str, run_id: str) -> None:
         self.agent = agent
         self.run_id = run_id
-        self.span = span
+        self._step_count = 0
+        self._total_tokens = 0
+        self._total_cost_usd = 0.0
         _agent_var.set(agent)
 
     def __exit__(self, *args):
@@ -136,6 +182,7 @@ class RunContext:
         tracer.end_span(ctx, result=None, error=None)
 
     def checkpoint(self, *, step: int, state: Any) -> None:
+        self._step_count = max(self._step_count, step)
         from .tracer import get_tracer
         tracer = get_tracer()
         attrs = {
@@ -146,13 +193,9 @@ class RunContext:
         ctx = tracer.start_span(f"checkpoint.{step}", kind="checkpoint", attributes=attrs)
         tracer.end_span(ctx, result=None, error=None)
 
-    def _emit_start(self) -> None:
-        self.span.attributes["run_id"] = self.run_id
-        self.span.attributes["run.start"] = True
-
-    def _emit_end(self, *, status: str, error: Exception | None) -> None:
-        self.span.attributes["run.end"] = True
-        self.span.attributes["status"] = status
+    def record_llm(self, *, tokens_in: int = 0, tokens_out: int = 0, cost_usd: float = 0.0) -> None:
+        self._total_tokens += tokens_in + tokens_out
+        self._total_cost_usd += cost_usd
 
 
 _agent_var: ContextVar[str | None] = ContextVar("ai_obs_current_agent", default=None)
@@ -173,7 +216,6 @@ def trace_context(*, traceparent: str | None = None) -> Iterator[None]:
 
 
 def _hash(obj: Any) -> str:
-    import hashlib, json
     blob = json.dumps(obj, sort_keys=True, default=str).encode()
     return "sha256:" + hashlib.sha256(blob).hexdigest()
 

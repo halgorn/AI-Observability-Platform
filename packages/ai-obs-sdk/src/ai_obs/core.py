@@ -57,6 +57,16 @@ class Tracer:
         self._hostname = socket.gethostname()
         self._pid = os.getpid()
         self._stopped = False
+        self._flush_thread = threading.Thread(target=self._periodic_flush, daemon=True)
+        self._flush_thread.start()
+
+    def _periodic_flush(self) -> None:
+        while not self._stopped:
+            time.sleep(5)
+            try:
+                self._flush()
+            except Exception:
+                pass
 
     def _init_otel(self) -> Any:
         if not self.config.endpoint:
@@ -106,8 +116,13 @@ class Tracer:
     def _should_sample(self, *, kind: str, attributes: dict[str, Any]) -> bool:
         if attributes.get("error") is not None or attributes.get("error_code"):
             return True
+        if attributes.get("event_type") in ("run.start", "run.end"):
+            return True
         import random
         return random.random() < self.config.sample_rate
+
+    def flush(self) -> None:
+        self._flush()
 
     def end_span(self, ctx: "SpanContext", result: Any, error: Exception | None) -> None:
         ctx.ended_at = time.time()

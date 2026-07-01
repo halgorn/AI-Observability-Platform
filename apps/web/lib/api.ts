@@ -50,7 +50,13 @@ export interface TraceNode {
 
 export interface Trace {
   roots: TraceNode[];
-  summary: { total_events: number; total_cost_usd: number; total_duration_ms: number };
+  summary: {
+    total_events: number;
+    total_cost_usd: number;
+    total_duration_ms: number;
+    error_message?: string | null;
+    error_type?: string | null;
+  };
 }
 
 export interface ReplaySessionOut {
