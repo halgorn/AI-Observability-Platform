@@ -36,6 +36,25 @@ export interface RunSummary {
   total_cost_usd: number | null;
 }
 
+export interface TraceEvent {
+  run_id: string;
+  span_id: string;
+  parent_span_id: string | null;
+  type: string;
+  agent: string | null;
+  tool: string | null;
+  llm_model: string | null;
+  started_at: string;
+  ended_at: string | null;
+  duration_ms: number | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  cost_usd: number | null;
+  error_code: string | null;
+  payload: Record<string, unknown>;
+  attributes: Record<string, unknown>;
+}
+
 export interface TraceNode {
   span_id: string;
   parent_span_id: string | null;
@@ -46,6 +65,7 @@ export interface TraceNode {
   ended_at: string | null;
   status: "ok" | "error" | "warning";
   children: TraceNode[];
+  event: TraceEvent;
 }
 
 export interface Trace {

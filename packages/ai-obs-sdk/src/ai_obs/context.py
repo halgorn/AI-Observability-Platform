@@ -154,6 +154,11 @@ def _build_payload(*, event_type: str, ctx: Any, result: Any, error: Exception |
             "total_tokens": ctx.attributes.get("total_tokens", 0),
             "total_cost_usd": ctx.attributes.get("total_cost_usd", 0.0),
         }
+    if event_type == "checkpoint":
+        return {
+            "step": ctx.attributes.get("step", 0),
+            "state_hash": ctx.attributes.get("state_hash", "sha256:" + "0" * 64),
+        }
     return {}
 
 

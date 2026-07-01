@@ -183,7 +183,23 @@ class Tracer:
         try:
             import httpx
             with httpx.Client(timeout=5.0) as c:
-                c.post(url, json=batch, headers=headers)
+                r = c.post(url, json=batch, headers=headers)
+            if r.status_code == 401 or r.status_code == 403:
+                logger.error("ai_obs auth error %d — check AI_OBS_SERVICE_TOKEN", r.status_code)
+            elif r.status_code == 422:
+                try:
+                    body = r.json()
+                    rejected = body.get("rejected_details") or []
+                    logger.warning(
+                        "ai_obs ingest: %d/%d rejected — first error: %s",
+                        body.get("rejected", len(rejected)),
+                        len(batch),
+                        rejected[0] if rejected else "unknown",
+                    )
+                except Exception:
+                    logger.warning("ai_obs ingest 422: %s", r.text[:300])
+            elif r.status_code >= 400:
+                logger.warning("ai_obs ingest %d for %d events: %s", r.status_code, len(batch), r.text[:200])
         except Exception as e:
             logger.warning("failed to emit %d events: %s", len(batch), e)
 
